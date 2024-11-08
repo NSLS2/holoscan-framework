@@ -50,7 +50,8 @@ holoscan = ">=2.5.0,<2.6.0"
 dectris-compression = ">=0.3"
 ```
 The `pixi shell` command will start executing the `pixi.toml` file to create the virtual environment and create a file named `pixi.lock` which shows the information about installed packages. 
+If one needs to remove the existing environment to start a fresh one, it is possible to do it via the `pixi clean` command.
 
 To run the holoscan example,  `python3 eiger_connect_sample.py` and to allow gpu execution pass `--cuda` argument. 
 
-Note to the holoscan developers: the current holoscan package installs `cupy` version `12.2.0` which does not have the `resample` functionality. Therefore, this script works fine on CPU but not on GPU.
+Note to the holoscan developers: the current holoscan package installs `cupy` version `12.2.0` which does not have the `resample` functionality. Therefore, this script works fine on CPU but not on GPU at the moment.
