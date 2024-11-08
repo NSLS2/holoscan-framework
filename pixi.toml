@@ -1,0 +1,30 @@
+[project]
+channels = ["conda-forge"]
+description = "Add a short description here"
+name = "eiger_test"
+platforms = ["linux-64"]
+version = "0.1.0"
+
+[tasks]
+
+[system-requirements]
+libc = { family = "glibc", version = "2.35" }
+
+[dependencies]
+python = ">=3.11,<3.12"
+#cupy = ">=13.3.0,<14"
+numpy = ">=1.20,<1.27"
+ipython = ">=8.28.0,<9"
+cuda-cudart = ">=12.6.77,<13"
+libcublas = ">=12.6.3.3,<13"
+libcufft = ">=11.3.0.4,<12"
+libcurand = ">=10.3.7.77,<11"
+libcusparse-dev = ">=12.5.4.2,<13"
+libcusolver = ">=11.7.1.2,<12"
+pyzmq = ">=26.0"
+scipy = ">=1.14"
+gcc = ">=14.0"
+
+[pypi-dependencies]
+holoscan = ">=2.5.0,<2.6.0"
+dectris-compression = ">=0.3"

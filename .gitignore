@@ -1,0 +1,35 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+
+# Sphinx documentation
+docs/build/
+docs/source/reference/generated/
+
+# Builds
+/build
+/dist
+
+# pytest
+.pytest_cache/
+
+# PyBuilder
+target/
+
+# Editor files
+#mac
+.DS_Store
+*~
+
+#vim
+*.swp
+*.swo
+
+#pycharm
+.idea/
+
+#VSCode
+.vscode/
+
+.env
+.asv/
+venv/
