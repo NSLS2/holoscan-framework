@@ -33,3 +33,6 @@ target/
 .env
 .asv/
 venv/
+
+#test data
+*.h5
