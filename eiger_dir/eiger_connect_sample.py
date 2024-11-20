@@ -66,7 +66,7 @@ def decode_cbor_message(zmq_message) -> tuple[str, npt.NDArray]:
 
         # msg['series_id'] - these msgs have series_id
         # msg['image_id'] - and image ids
-        
+
         msg_data = msg["data"]["threshold_1"]
         shape, contents = msg_data.value
         dtype = tag_decoders[contents.tag]
@@ -130,95 +130,18 @@ class ZmqRxOp(Operator):
                 print(f"{pprint.pformat(result)}")
                 print(traceback.format_exc())
 
-
-class GatherOp(Operator):
-
-    def __init__(self, fragment, *args, **kwargs):
-        super().__init__(fragment, *args, **kwargs)
-        self.logger = logging.getLogger("GatherOp")
-        logging.basicConfig(level=logging.INFO)
-
-        self.batches = kwargs['batches']
-        self.input_shape = kwargs['input_shape']
-
-    def initialize(self):
-        Operator.initialize(self)
-        self.logger.info("Gather Operator initialized")
-
-        self.iterator = 0
-        print("input shape: ", *self.input_shape)
-        self.data = np.zeros((self.batches, *self.input_shape), dtype=np.complex64)
-
-    def setup(self, spec: OperatorSpec):
-        spec.input("data_in")
-        spec.output("data_out")
-
-    def compute(self, op_input, op_output, context):
-        data_in = op_input.receive("data_in")
-
-        self.data[self.iterator, :] = data_in
-
-        if self.iterator < self.batches - 1:
-            self.iterator += 1
-        else:
-            op_output.emit(self.data, "data_out")
-            self.iterator = 0
-
-class ResamplerOp(Operator):
-
-    def __init__(self, fragment, *args, **kwargs):
-        super().__init__(fragment, *args, **kwargs)
-        self.logger = logging.getLogger("ResamplerOp")
-        logging.basicConfig(level=logging.INFO)
-
-        self.rate = kwargs['rate']
-        self.cuda = kwargs['cuda']
-
-    def initialize(self):
-        Operator.initialize(self)
-        self.logger.info("Resampler Operator initialized")
-
-    def setup(self, spec: OperatorSpec):
-        spec.input("wave")
-
-    def compute(self, op_input, op_output, context):
-        wave = op_input.receive("wave")
-
-        st = time.time()
-        if self.cuda:
-            print("using gpu for resampling")
-            resampled_wave = gpu.resample(wave, self.rate, axis=1)
-        else:
-            print("using cpu for resampling")
-            resampled_wave = cpu.resample(wave, self.rate, axis=1)
-        et = time.time()
-
-        print(wave.shape, resampled_wave.shape, f"Processing time: {(et - st) * 100} ms")
-
 @create_op
 def sink_func(image):
     print(f"Sink received image ({image.shape=}")
 
 
 
-class SineUdpRx(Application):
+class EigerPtychoApp(Application):
     def compose(self):
-        #batches = 8192
-        batches = 1
-        number_of_elements = 1030*1065
-        resample_rate = 10
-        use_cuda = '--cuda' in sys.argv
-
-        if use_cuda:
-            print("Using CUDA for resampling.")
-
         zmq_rx_op = ZmqRxOp(self, name="zmq_rx_op")
         sink_op = sink_func(self, name="sink_op")
-        # gather_op = GatherOp(self, name="GatherOp", batches=batches, input_shape=(number_of_elements,))
-        # resampler_op = ResamplerOp(self, name="ResamplerOp", rate=(number_of_elements // resample_rate), cuda=use_cuda)
 
         self.add_flow(zmq_rx_op, sink_op)
-        # self.add_flow(gather_op, resampler_op)
 
 
 
