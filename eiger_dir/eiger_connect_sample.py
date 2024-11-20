@@ -3,6 +3,7 @@ import time
 import logging
 import socket
 import zmq
+from argparse import ArgumentParser
 
 from time import sleep
 
@@ -21,8 +22,6 @@ from holoscan.conditions import CountCondition
 from holoscan.core import Application, Operator, OperatorSpec
 from holoscan.logger import LogLevel, set_log_level
 
-eiger_ip = ...
-eiger_port = "9999"
 
 n_messages = 0
 
@@ -204,11 +203,29 @@ class SineUdpRx(Application):
         self.add_flow(gather_op, resampler_op)
 
 
-def main():
-    app = SineUdpRx()
-    app.run()
 
 
 if __name__ == "__main__":
-    main()
+    parser = ArgumentParser(description="Eiger ingest example")
+    parser.add_argument(
+        "--eiger_ip",
+        type=str,
+        default=...,
+        help=(
+            "Eiger Detector IP address"
+        ),
+    )
+    parser.add_argument(
+        "--eiger_port",
+        type=str,
+        default="9999",
+        help=("Eiger Detector port"),
+    )
 
+    args = parser.parse_args()
+    
+    eiger_ip = args.eiger_ip
+    eiger_port = args.eiger_port
+    
+    app = SineUdpRx()
+    app.run()
