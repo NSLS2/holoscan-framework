@@ -41,7 +41,7 @@ def decode_json_message(zmq_message) -> tuple[str, npt.NDArray]:
         if not data_encoding_str:
             raise RuntimeError(f"Encoding {data_encoding!r} is not supported")
 
-        data_type_str = self.supported_types.get(data_type, None)
+        data_type_str = supported_types.get(data_type, None)
         if not data_type_str:
             raise RuntimeError(f"Encoding {data_type!r} is not supported")
 
@@ -109,7 +109,6 @@ class ZmqRxOp(Operator):
     def compute(self, op_input, op_output, context):
         while True:
             msg = self.socket.recv()
-            self.count += 1
             try:
                 if self.msg_format == "json":
                     msg_type, image_data = decode_json_message(msg)
@@ -117,22 +116,30 @@ class ZmqRxOp(Operator):
                     msg_type, image_data = decode_cbor_message(msg)
 
                 if msg_type == "image":
+                    self.count += 1
                     self.logger.info(f"Successfully processed {self.count} frames")
                     op_output.emit(image_data, "image")
                 else: # probably should have a better handling of start/end messages
                     self.logger.info("-" * 80)
-                    self.logger.info("Image series start/end")
+
+                    if self.count == 0:
+                        self.logger.info("Image series start")
+                    else:
+                        self.logger.info("Image series end")
+                        self.count = 0
                     self.logger.info("-" * 80)
-                    self.count = 0
 
             except Exception as ex:
                 result = "ERROR: Failed to process message: {ex}"
                 print(f"{pprint.pformat(result)}")
                 print(traceback.format_exc())
 
-@create_op
+            return
+
+
+@create_op(inputs="image")
 def sink_func(image):
-    print(f"Sink received image ({image.shape=}")
+    print(f"SinkOp received image: shape={image.shape}, total_counts={np.sum(image)}")
 
 
 
@@ -175,6 +182,6 @@ if __name__ == "__main__":
     eiger_ip = args.eiger_ip
     eiger_port = args.eiger_port
     msg_format = args.message_format
-    
-    app = SineUdpRx()
+
+    app = EigerPtychoApp()
     app.run()
