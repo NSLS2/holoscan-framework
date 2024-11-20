@@ -8,8 +8,10 @@ from argparse import ArgumentParser
 from time import sleep
 
 import numpy as np
+import numpy.typing as npt
 import cupy as cp
 import json
+import cbor2
 import pprint
 import traceback
 
@@ -21,103 +23,112 @@ from cupyx.scipy import signal as gpu
 from holoscan.conditions import CountCondition
 from holoscan.core import Application, Operator, OperatorSpec
 from holoscan.logger import LogLevel, set_log_level
+from holoscan.decorator import create_op
 
 
-n_messages = 0
+supported_encodings = {"bs32-lz4<": "bslz4", "lz4<": "lz4"}
+supported_types = {"uint32": "uint32"}
+def decode_json_message(zmq_message) -> tuple[str, npt.NDArray]:
+    msg = json.loads(zmq_message.decode())
 
-class UdpRxOp(Operator):
-    sock_fd: socket.socket = None
-    packet_size: int
-    data: bytearray
+    # There should be more robust way to detect this frame
+    if "htype" in msg and msg["htype"] == "dimage_d-1.0":
+        data_encoding = msg.get("encoding", None)
+        data_shape = msg.get("shape", None)
+        data_type = msg.get("type", None)
 
+        data_encoding_str = supported_encodings.get(data_encoding, None)
+        if not data_encoding_str:
+            raise RuntimeError(f"Encoding {data_encoding!r} is not supported")
+
+        data_type_str = self.supported_types.get(data_type, None)
+        if not data_type_str:
+            raise RuntimeError(f"Encoding {data_type!r} is not supported")
+
+        elem_type = getattr(np, data_type_str)
+        elem_size = elem_type(0).nbytes
+        decompressed = decompress(msg, data_encoding_str, elem_size=elem_size)
+        image = np.frombuffer(decompressed, dtype=elem_type)
+    else:
+        msg_type = ""
+        image = None
+    return msg_type, image
+
+
+tag_decoders = {
+    69: "<u2",
+    70: "<u4",
+}
+def decode_cbor_message(zmq_message) -> tuple[str, npt.NDArray]:
+    msg = cbor2.loads(zmq_message)
+    if msg["type"] == "image":
+        msg_type = "image"
+
+        # msg['series_id'] - these msgs have series_id
+        # msg['image_id'] - and image ids
+        
+        msg_data = msg["data"]["threshold_1"]
+        shape, contents = msg_data.value
+        dtype = tag_decoders[contents.tag]
+
+        if type(contents.value) is bytes:
+            compression_type = None
+            image = np.frombuffer(contents.value, dtype=dtype).reshape(shape)
+        else:
+            compression_type, elem_size, image = contents.value.value
+            decompressed_bytes = decompress(image, compression_type, elem_size=elem_size)
+            image = np.frombuffer(decompressed_bytes, dtype=dtype).reshape(shape)
+    else:
+        msg_type = ""
+        image = None
+    return msg_type, image
+
+
+class ZmqRxOp(Operator):
     def __init__(self, fragment, *args, **kwargs):
         super().__init__(fragment, *args, **kwargs)
-        self.logger = logging.getLogger("UdpRxOp")
+        self.logger = logging.getLogger("ZmqRxOp")
         logging.basicConfig(level=logging.INFO)
 
-        #self.packet_size = kwargs['packet_size'] * 8
-        # Check if the packet size fits in a UDP packet.
-        #assert self.packet_size <= 8000
+        self.endpoint = f"tcp://{eiger_ip}:{eiger_port}"
+        self.msg_format = msg_format
+        self.count = 0
 
-    def initialize(self):
-        Operator.initialize(self)
-        self.logger.info("UDP RX Operator initialized")
+        context = zmq.Context()
+        self.socket = context.socket(zmq.PULL)
 
         try:
-            # self.sock_fd = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-            context = zmq.Context()
-            # recieve work
-            self.sock_fd = context.socket(zmq.PULL)
+            self.socket.connect(self.endpoint)
         except socket.error:
             self.logger.error("Failed to create socket")
 
-        # self.sock_fd.bind(("127.0.0.1", 8080))
-        self.sock_fd.connect(f"tcp://{eiger_ip}:{eiger_port}")
-
     def setup(self, spec: OperatorSpec):
-        spec.output("wave")
+        spec.output("image")
+
 
     def compute(self, op_input, op_output, context):
-        global n_messages
-        data_encoding, data_shape, data_type, next_is_frame = None, None, None, False
-
         while True:
-            #print(f"Waiting for data ...")
-            #buffer = consumer_receiver.recv()
-            buffer = self.sock_fd.recv()
-            n_messages += 1
-            #print(f"Message {n_messages} is received")
-
+            msg = self.socket.recv()
+            self.count += 1
             try:
-                if not next_is_frame:
-                    buffer = json.loads(buffer.decode())
+                if self.msg_format == "json":
+                    msg_type, image_data = decode_json_message(msg)
+                elif self.msg_format == "cbor":
+                    msg_type, image_data = decode_cbor_message(msg)
 
-                    # There should be more robust way to detect this frame
-                    if "htype" in buffer and buffer["htype"] == "dimage_d-1.0":
-                        data_encoding = buffer.get("encoding", None)
-                        data_shape = buffer.get("shape", None)
-                        data_type = buffer.get("type", None)
-                        next_is_frame = True
+                if msg_type == "image":
+                    self.logger.info(f"Successfully processed {self.count} frames")
+                    op_output.emit(image_data, "image")
+                else: # probably should have a better handling of start/end messages
+                    self.logger.info("-" * 80)
+                    self.logger.info("Image series start/end")
+                    self.logger.info("-" * 80)
+                    self.count = 0
 
-                    result = buffer
-
-                else:
-                    next_is_frame = False
-
-                    try:
-                        supported_encodings = {"bs32-lz4<": "bslz4", "lz4<": "lz4"}
-                        data_encoding_str = supported_encodings.get(data_encoding, None)
-                        if not data_encoding_str:
-                            raise RuntimeError(f"Encoding {data_encoding!r} is not supported")
-
-                        supported_types = {"uint32": "uint32"}
-                        data_type_str = supported_types.get(data_type, None)
-                        if not data_type_str:
-                            raise RuntimeError(f"Encoding {data_type!r} is not supported")
-
-                        elem_type = getattr(np, data_type_str)
-                        elem_size = elem_type(0).nbytes
-                        decompressed = decompress(buffer, data_encoding_str, elem_size=elem_size)
-
-                        data = np.frombuffer(decompressed, dtype=elem_type)
-                        #data = np.reshape(data, data_shape)
-                        # The data should be properly shaped image of the respective type
-                        result = f"Data frame is received. Image shape: {data.shape}"
-
-                    except Exception as ex:
-                        result = f"Failed to decode the received data frame. The frame size is {len(buffer)} bytes"
-                        print(traceback.format_exc())
-
-                    #wave = np.frombuffer(buffer, dtype=elem_type)
-                    #op_output.emit(wave, "wave")
-                    op_output.emit(data, "wave")
-                    return
             except Exception as ex:
                 result = "ERROR: Failed to process message: {ex}"
+                print(f"{pprint.pformat(result)}")
                 print(traceback.format_exc())
-
-            #print(f"{pprint.pformat(result)}")
-            #print("=" * 80)
 
 
 class GatherOp(Operator):
@@ -184,6 +195,12 @@ class ResamplerOp(Operator):
 
         print(wave.shape, resampled_wave.shape, f"Processing time: {(et - st) * 100} ms")
 
+@create_op
+def sink_func(image):
+    print(f"Sink received image ({image.shape=}")
+
+
+
 class SineUdpRx(Application):
     def compose(self):
         #batches = 8192
@@ -195,12 +212,13 @@ class SineUdpRx(Application):
         if use_cuda:
             print("Using CUDA for resampling.")
 
-        udp_rx_op = UdpRxOp(self, name="UdpRxOp", packet_size=number_of_elements)
-        gather_op = GatherOp(self, name="GatherOp", batches=batches, input_shape=(number_of_elements,))
-        resampler_op = ResamplerOp(self, name="ResamplerOp", rate=(number_of_elements // resample_rate), cuda=use_cuda)
+        zmq_rx_op = ZmqRxOp(self, name="zmq_rx_op")
+        sink_op = sink_func(self, name="sink_op")
+        # gather_op = GatherOp(self, name="GatherOp", batches=batches, input_shape=(number_of_elements,))
+        # resampler_op = ResamplerOp(self, name="ResamplerOp", rate=(number_of_elements // resample_rate), cuda=use_cuda)
 
-        self.add_flow(udp_rx_op, gather_op)
-        self.add_flow(gather_op, resampler_op)
+        self.add_flow(zmq_rx_op, sink_op)
+        # self.add_flow(gather_op, resampler_op)
 
 
 
@@ -221,11 +239,19 @@ if __name__ == "__main__":
         default="9999",
         help=("Eiger Detector port"),
     )
+    parser.add_argument(
+        "-m",
+        "--message_format",
+        type=str,
+        choices=["json", "cbor"],
+        default="json",
+        help=("Eiger message format"),
+    )
 
     args = parser.parse_args()
-    
     eiger_ip = args.eiger_ip
     eiger_port = args.eiger_port
+    msg_format = args.message_format
     
     app = SineUdpRx()
     app.run()
