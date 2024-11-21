@@ -106,7 +106,7 @@ class EigerZmqRxOp(Operator):
     def setup(self, spec: OperatorSpec):
         spec.output("image")
         if simulate_position_data_stream:
-            spec.output("trigger")
+            spec.output("count")
 
 
     def compute(self, op_input, op_output, context):
@@ -123,7 +123,7 @@ class EigerZmqRxOp(Operator):
                     self.logger.info(f"Successfully processed {self.count} frames")
                     op_output.emit(image_data, "image")
                     if simulate_position_data_stream:
-                        op_output.emit(1, "trigger")
+                        op_output.emit(self.count, "count") # emit count to trigger the position transmitter to emit corresponding point
                 else: # probably should have a better handling of start/end messages
                     self.logger.info("-" * 80)
 
@@ -143,26 +143,27 @@ class EigerZmqRxOp(Operator):
 
 
 class PositionSimTxOp(Operator):
+    '''
+    Simulator of position data stream. Receives a signal from EigerZmqExOp and emits corresponding point data.
+    '''
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.logger = logging.getLogger("PositionSimTxOp")
         logging.basicConfig(level=logging.INFO)
         with h5py.File(position_data_path) as f:
             self.points = f["points"][()].T
-            self.index = 0
             self.N = self.points.shape[0]
 
     def setup(self, spec: OperatorSpec):
-        spec.input("trigger")
+        spec.input("index")
         spec.output("point")
 
     def compute(self, op_input, op_output, context):
-        op_input.receive("trigger")
-        if self.index < self.N:
-            self.logger.info(f"Emitting {self.index} point coordinate")
-            point = self.points[self.index, :]
+        index = op_input.receive("index")
+        if index < self.N:
+            self.logger.info(f"Emitting {index} point coordinate")
+            point = self.points[index, :]
             op_output.emit(point, "point")
-            self.index += 1
 
 class PositionRxOp(Operator):
     def __init__(self, *args, **kwargs):
@@ -206,7 +207,7 @@ class EigerPtychoApp(Application):
 
         if simulate_position_data_stream:
             pos_sim_tx = PositionSimTxOp(self, name="pos_sim_tx")
-            self.add_flow(eiger_zmq_rx, pos_sim_tx, {("trigger", "trigger")})
+            self.add_flow(eiger_zmq_rx, pos_sim_tx, {("count", "index")})
             self.add_flow(pos_sim_tx, pos_rx)
 
 
