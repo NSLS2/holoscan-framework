@@ -14,6 +14,7 @@ import json
 import cbor2
 import pprint
 import traceback
+import h5py
 
 from dectris.compression import decompress
 
@@ -84,10 +85,10 @@ def decode_cbor_message(zmq_message) -> tuple[str, npt.NDArray]:
     return msg_type, image
 
 
-class ZmqRxOp(Operator):
+class EigerZmqRxOp(Operator):
     def __init__(self, fragment, *args, **kwargs):
         super().__init__(fragment, *args, **kwargs)
-        self.logger = logging.getLogger("ZmqRxOp")
+        self.logger = logging.getLogger("EigerZmqRxOp")
         logging.basicConfig(level=logging.INFO)
 
         self.endpoint = f"tcp://{eiger_ip}:{eiger_port}"
@@ -104,6 +105,8 @@ class ZmqRxOp(Operator):
 
     def setup(self, spec: OperatorSpec):
         spec.output("image")
+        if simulate_position_data_stream:
+            spec.output("trigger")
 
 
     def compute(self, op_input, op_output, context):
@@ -119,6 +122,8 @@ class ZmqRxOp(Operator):
                     self.count += 1
                     self.logger.info(f"Successfully processed {self.count} frames")
                     op_output.emit(image_data, "image")
+                    if simulate_position_data_stream:
+                        op_output.emit(1, "trigger")
                 else: # probably should have a better handling of start/end messages
                     self.logger.info("-" * 80)
 
@@ -137,18 +142,72 @@ class ZmqRxOp(Operator):
             return
 
 
-@create_op(inputs="image")
-def sink_func(image):
+class PositionSimTxOp(Operator):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.logger = logging.getLogger("PositionSimTxOp")
+        logging.basicConfig(level=logging.INFO)
+        with h5py.File(position_data_path) as f:
+            self.points = f["points"][()].T
+            self.index = 0
+            self.N = self.points.shape[0]
+
+    def setup(self, spec: OperatorSpec):
+        spec.input("trigger")
+        spec.output("point")
+
+    def compute(self, op_input, op_output, context):
+        op_input.receive("trigger")
+        if self.index < self.N:
+            self.logger.info(f"Emitting {self.index} point coordinate")
+            point = self.points[self.index, :]
+            op_output.emit(point, "point")
+            self.index += 1
+
+class PositionRxOp(Operator):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.logger = logging.getLogger("PositionRxOp")
+        logging.basicConfig(level=logging.INFO)
+        # some logic that goes into setting up the position data receiver (ZMQ, UDP, etc)
+
+    def setup(self, spec: OperatorSpec):
+        if simulate_position_data_stream:
+            spec.input("point_input")
+        spec.output("point")
+
+    def compute(self, op_input, op_output, context):
+        if simulate_position_data_stream:
+            data = op_input.receive("point_input")
+        else:
+            data = np.array([0, 0]) # placeholder - this should be changed to something that will actually receive the data
+        self.logger.info(f"Emitting point data {data}")
+        op_output.emit(data, "point")
+
+
+
+
+
+@create_op(inputs=("image", "point"))
+def sink_func(image, point):
     print(f"SinkOp received image: shape={image.shape}, total_counts={np.sum(image)}")
+    print(f"SinkOp received point coordinates: {point=}")
 
 
 
 class EigerPtychoApp(Application):
     def compose(self):
-        zmq_rx_op = ZmqRxOp(self, name="zmq_rx_op")
-        sink_op = sink_func(self, name="sink_op")
+        eiger_zmq_rx = EigerZmqRxOp(self, name="eiger_zmq_rx")
+        pos_rx = PositionRxOp(self, name="pos_rx")
+        sink = sink_func(self, name="sink")
 
-        self.add_flow(zmq_rx_op, sink_op)
+        self.add_flow(eiger_zmq_rx, sink, {("image", "image")})
+        self.add_flow(pos_rx, sink, {("point", "point")})
+
+        if simulate_position_data_stream:
+            pos_sim_tx = PositionSimTxOp(self, name="pos_sim_tx")
+            self.add_flow(eiger_zmq_rx, pos_sim_tx, {("trigger", "trigger")})
+            self.add_flow(pos_sim_tx, pos_rx)
 
 
 
@@ -177,11 +236,25 @@ if __name__ == "__main__":
         default="json",
         help=("Eiger message format"),
     )
+    parser.add_argument(
+        "-p",
+        "--position_data_source",
+        type=str,
+        default="scan_257331.h5",
+        help=("Position data source"),
+    )
 
     args = parser.parse_args()
     eiger_ip = args.eiger_ip
     eiger_port = args.eiger_port
     msg_format = args.message_format
+    if args.position_data_source == "stream":
+        simulate_position_data_stream = False
+        position_data_path = None
+    elif args.position_data_source.endswith(".h5"):
+        simulate_position_data_stream = True
+        position_data_path = f"/test_data/{args.position_data_source}"
+
 
     app = EigerPtychoApp()
     app.run()

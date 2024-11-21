@@ -27,7 +27,7 @@ docker.io/library/hxn-ptycho-holoscan    latest                   9777387459f9  
 
 After successfully building the container, we run it via 
 ```
-podman run --rm --net host -it -v ./eiger_dir:/eiger_dir -w /eiger_dir --device nvidia.com/gpu=all hxn-ptycho-holoscan
+podman run --rm --net host -it -v ./eiger_dir:/eiger_dir -v ./eiger_simulation/test_data:/test_data -w /eiger_dir --device nvidia.com/gpu=all hxn-ptycho-holoscan
 ```
 
 Since it is easier to manage virtual environment, packaging and version control via `pixi`, we use the following `pixi.toml` to generate a virtual conda environment inside a directory named `eiger_dir` we mounted while starting the container
