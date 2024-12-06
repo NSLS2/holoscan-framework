@@ -54,24 +54,52 @@ docker build . -t eiger_sim:test --network
 ```
 
 The API uses ports 8000 and 5555 for the simulated detector control and data stream, respectively.
+
+To run this container with podman, first pull it:
+```
+podman pull docker-daemon:eiger_sim:test
+```
+Once it's done, check the availability of the container:
+```
+podman image ls
+
+# output:
+REPOSITORY                               TAG                      IMAGE ID      CREATED        SIZE
+docker.io/library/eiger_sim              test                     da9a38ed0b93  2 weeks ago    2.35 GB
+```
+
+
 To see the API output run the container interactively:
 
 ```
+# with podman:
+podman run -it -p 8000:8000 -p 5555:5555 eiger_sim:test
+# with docker:
 docker run -it -p 8000:8000 -p 5555:5555 eiger_sim:test
 ```
+
+
 Otherwise, run it in the detached mode:
 
 ```
+# with podman:
+podman run -d -p 8000:8000 -p 5555:5555 eiger_sim:test
+
+# with docker:
 docker run -d -p 8000:8000 -p 5555:5555 eiger_sim:test
 ```
 
-After launching the container (if container is running interactively, open a separate terminal), find the container ID with `docker ps` command. The output should look like this:
+After launching the container (if container is running interactively, open a separate terminal), find the container ID with `podman ps` (or `docker ps`) command. The output should look like this:
 ```
 CONTAINER ID   IMAGE            COMMAND                  CREATED              STATUS              PORTS                                                                                  NAMES
-d270120da233   eiger_sim:test   "/bin/sh -c 'uvicorn…"   About a minute ago   Up About a minute   0.0.0.0:5555->5555/tcp, :::5555->5555/tcp, 0.0.0.0:8000->8000/tcp, :::8000->8000/tcp   peaceful_meitner
+d270120da233   docker.io/library/eiger_sim:test   "/bin/sh -c 'uvicorn…"   About a minute ago   Up About a minute   0.0.0.0:5555->5555/tcp, :::5555->5555/tcp, 0.0.0.0:8000->8000/tcp, :::8000->8000/tcp   peaceful_meitner
 ```
 Connect to the container:
 ```
+# with podman:
+podman exec -it d270120da233 sh
+
+# with docker:
 docker exec -it d270120da233 sh
 ```
 To trigger the detector use the following command:
