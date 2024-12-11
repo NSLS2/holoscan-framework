@@ -1,16 +1,23 @@
 # holoscan-framework
-In order to run the `eiger_connect_sample.py`, we run the holoscan application inside an ubuntu container. However, since basic tools like `vim`, `curl`, `pixi` does not exit in the pure ubuntu container, we create a wrapper-like container with a `Dockerfile` defined as below
-```
-FROM docker.io/nvidia/cuda:12.6.0-base-ubuntu22.04
-RUN apt-get update && apt-get install -y curl vim
-RUN curl -fsSL https://pixi.sh/install.sh | PIXI_HOME=/usr/local bash
-```
-We build a container named `hxn-ptycho-holoscan`:
- ```
- docker build . -t hxn-ptycho-holoscan --network host
- ```
 
-To run turn the Docker container into a podman container, we run the following command:
+## Prerequisites
+ptycho backend code repo should be cloned to a folder placed one level above the folder containing the current repo, e.g.:
+
+```
+<some folder>
+    |---/ptycho/
+    |---/holoscan-framework/
+```
+
+## Holoscan App Container
+In order to run the `eiger_connect_sample.py`, we run the holoscan application inside an ubuntu container defined in the [Dockerfile](https://github.com/skarakuzu/holoscan-framework/blob/689db83db0a94e65299aa78d83f55c148a0ac6b4/Dockerfile).
+
+To build a container named `hxn-ptycho-holoscan`:
+```
+docker build . -t hxn-ptycho-holoscan --network host
+```
+
+To turn the Docker container into a podman container, we run the following command:
 ```
 podman pull docker-daemon:hxn-ptycho-holoscan:latest
 ```
@@ -25,9 +32,15 @@ docker.io/library/hxn-ptycho-holoscan    latest                   9777387459f9  
 
 ```
 
-After successfully building the container, we run it via 
+After successfully building the container, we run it via
 ```
-podman run --rm --net host -it -v ./eiger_dir:/eiger_dir -v ./eiger_simulation/test_data:/test_data -w /eiger_dir --device nvidia.com/gpu=all hxn-ptycho-holoscan
+podman run --rm --net host -it \
+    -v ./eiger_dir:/eiger_dir \
+    -v ./eiger_simulation/test_data:/test_data \
+    -v ./ptycho_repo:/ptycho_repo \
+    -v ../ptycho:/ptycho_repo/ptycho \ this mounts the ptycho repo inside the container
+    -w /eiger_dir \
+    --device nvidia.com/gpu=all hxn-ptycho-holoscan
 ```
 
 Since it is easier to manage virtual environment, packaging and version control via `pixi`, we use the following `pixi.toml` to generate a virtual conda environment inside a directory named `eiger_dir` we mounted while starting the container
@@ -40,7 +53,7 @@ Additional parameters can be passed to the holoscan script to streamline testing
 python3 eiger_connect_sample.py --eiger_ip 0.0.0.0 --eiger_port 5555 -m cbor
 ```
 
-# Simulating data stream using test data from HXN
+## Simulating data stream using test data from HXN
 To test/develop the holoscan pipeline, we can run a simulated data stream.
 Test ptychography scan data recoreded by Eiger should be placed to `/eiger_simulation/test_data/`. Currently, the test files include `scan_257331_raw.h5` and `scan_257331.h5`.
 

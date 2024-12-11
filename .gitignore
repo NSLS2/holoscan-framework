@@ -36,3 +36,6 @@ venv/
 
 #test data
 *.h5
+
+# egg
+*.egg*/
