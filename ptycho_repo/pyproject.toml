@@ -1,6 +1,0 @@
-[project]
-name = "ptycho"
-version = "0.0.1"
-description = "Ptycho reconstruction code for HXN"
-readme = "README.md"
-requires-python = ">=3.9"

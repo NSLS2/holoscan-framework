@@ -1,11 +1,12 @@
 # holoscan-framework
 
 ## Prerequisites
-ptycho backend code repo should be cloned to a folder placed one level above the folder containing the current repo, e.g.:
+Both ptycho_gui and ptycho repos should be cloned to a folder placed one level above the folder containing the current repo, e.g.:
 
 ```
 <some folder>
     |---/ptycho/
+    |---/ptycho_gui/
     |---/holoscan-framework/
 ```
 
@@ -37,8 +38,8 @@ After successfully building the container, we run it via
 podman run --rm --net host -it \
     -v ./eiger_dir:/eiger_dir \
     -v ./eiger_simulation/test_data:/test_data \
-    -v ./ptycho_repo:/ptycho_repo \
-    -v ../ptycho:/ptycho_repo/ptycho \ this mounts the ptycho repo inside the container
+    -v ../ptycho_gui:/ptycho_gui \
+    -v ../ptycho:/ptycho_gui/nsls2ptycho/core/ptycho \
     -w /eiger_dir \
     --device nvidia.com/gpu=all hxn-ptycho-holoscan
 ```
