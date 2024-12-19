@@ -41,6 +41,10 @@ podman run --rm --net host -it \
     -v ../ptycho_gui:/ptycho_gui \
     -v ../ptycho:/ptycho_gui/nsls2ptycho/core/ptycho \
     -w /eiger_dir \
+    -e OMPI_ALLOW_RUN_AS_ROOT=1 \
+    -e OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1 \
+    -e OMPI_COMM_WORLD_LOCAL_RANK=0 \
+    -e OMPI_COMM_WORLD_LOCAL_SIZE=1 \
     --device nvidia.com/gpu=all hxn-ptycho-holoscan
 ```
 

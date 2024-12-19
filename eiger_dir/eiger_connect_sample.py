@@ -21,11 +21,15 @@ from dectris.compression import decompress
 from scipy import signal as cpu
 from cupyx.scipy import signal as gpu
 
+from nsls2ptycho.core.ptycho.recon_ptycho_gui import ReconObject
+from nsls2ptycho.core.ptycho.utils import parse_config
+from nsls2ptycho.core.ptycho_param import Param
+
 from holoscan.conditions import CountCondition
 from holoscan.core import Application, Operator, OperatorSpec
 from holoscan.logger import LogLevel, set_log_level
 from holoscan.decorator import create_op
-
+# from holoscan.operators import HolovizOp
 
 supported_encodings = {"bs32-lz4<": "bslz4", "lz4<": "lz4"}
 supported_types = {"uint32": "uint32"}
@@ -186,30 +190,106 @@ class PositionRxOp(Operator):
         op_output.emit(data, "point")
 
 
+class GatherOp(Operator):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.logger = logging.getLogger("GatherOp")
+        logging.basicConfig(level=logging.INFO)
+        self.image_list = []
+        self.point_list = []
+        self.counter = 0
+        self.batchsize = 200
+
+    def setup(self, spec: OperatorSpec):
+        spec.input("image")
+        spec.input("point")
+        spec.output("detmap")
+        spec.output("points")
+        
+    def compute(self, op_input, op_output, context):
+        image = op_input.receive("image")
+        point = op_input.receive("point")
+        
+        self.image_list.append(image)
+        self.point_list.append(point)
+        
+        if self.counter < (self.batchsize - 1):
+            self.counter += 1
+        else:
+            detmap = np.array(self.image_list)
+            points = np.array(self.point_list)
+            op_output.emit(detmap, "detmap")
+            op_output.emit(points, "points")
+            self.counter = 0
+            self.logger.info("Emitting data batch")
+            
+
+class ReconOp(Operator):
+    def __init__(self, *args, param=None, postprocessing_flag=False, **kwargs):
+        self.logger = logging.getLogger("ReconOp")
+        logging.basicConfig(level=logging.INFO)
+        super().__init__(*args, **kwargs)
+        self.recon_obj = ReconObject(param=param, postprocessing_flag=postprocessing_flag)
+        
+    def setup(self, spec):
+        spec.input("detmap")
+        spec.input("points")
+        spec.output("result")
+    
+    def compute(self, op_input, op_output, context):
+        detmap = op_input.receive("detmap")
+        points = op_input.receive("points")
+        
+        self.logger.info("Reconstruction started")
+        nz = detmap.shape[0]
+        ic = np.ones(points.shape[0])
+        
+        self.recon_obj.set_data_arrays(detmap, points.T, ic, nz)
+        self.recon_obj.recon_ptycho()
+        self.logger.info("Reconstruction finished")
+        
+        op_output.emit(1, "result")
+    
+    def stop(self, *args, **kwargs):
+        self.recon_obj.finalize()
+        super().stop(*args, **kwargs)
 
 
+# @create_op(inputs=("image", "point"))
+# def sink_func(image, point):
+#     print(f"SinkOp received image: shape={image.shape}, total_counts={np.sum(image)}")
+#     print(f"SinkOp received point coordinates: {point=}")
 
-@create_op(inputs=("image", "point"))
-def sink_func(image, point):
-    print(f"SinkOp received image: shape={image.shape}, total_counts={np.sum(image)}")
-    print(f"SinkOp received point coordinates: {point=}")
+# @create_op(inputs=("detmap", "points"))
+# def sink_func(detmap, points):
+#     print(f"SinkOp received image: shape={detmap.shape}, total_counts={np.sum(detmap, axis=(1,2))}")
+#     print(f"SinkOp received points: shape={points.shape}")
 
+@create_op(inputs="result")
+def sink_func(result):
+    print(f"SinkOp received the result from reconstruction {result=}")
 
 
 class EigerPtychoApp(Application):
     def compose(self):
+        global simulate_position_data_stream, recon_param
+        
         eiger_zmq_rx = EigerZmqRxOp(self, name="eiger_zmq_rx")
         pos_rx = PositionRxOp(self, name="pos_rx")
+        gather = GatherOp(self, name="gather")
+        recon = ReconOp(self, name="recon", param=recon_param, postprocessing_flag=False)
         sink = sink_func(self, name="sink")
 
-        self.add_flow(eiger_zmq_rx, sink, {("image", "image")})
-        self.add_flow(pos_rx, sink, {("point", "point")})
-
+        self.add_flow(eiger_zmq_rx, gather, {("image", "image")})
+        self.add_flow(pos_rx, gather, {("point", "point")})
+        # self.add_flow(gather, sink, {("detmap", "detmap"), ("points", "points")})
+        self.add_flow(gather, recon, {("detmap", "detmap"), ("points", "points")})
+        self.add_flow(recon, sink)
+        
         if simulate_position_data_stream:
             pos_sim_tx = PositionSimTxOp(self, name="pos_sim_tx")
             self.add_flow(eiger_zmq_rx, pos_sim_tx, {("count", "index")})
             self.add_flow(pos_sim_tx, pos_rx)
-
 
 
 
@@ -255,7 +335,12 @@ if __name__ == "__main__":
     elif args.position_data_source.endswith(".h5"):
         simulate_position_data_stream = True
         position_data_path = f"/test_data/{args.position_data_source}"
-
+    
+    recon_param = parse_config('/eiger_dir/ptycho_config',Param())
+    recon_param.working_directory = "/test_data/"
+    recon_param.gpus = [0]
+    # print(f"{recon_param.shm_name=}")
+    recon_param.scan_num = 257331
 
     app = EigerPtychoApp()
     app.run()
