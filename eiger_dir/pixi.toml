@@ -29,6 +29,8 @@ pyzmq = ">=26.0"
 scipy = ">=1.14"
 gcc = ">=14.0"
 mpi4py = ">=4.0.1"
+
+pyqtgraph = "==0.13.7"
 #pyfftw = "==0.14.0"
 ##pyqt = "==5.15.9"
 ##matplotlib = "==3.9.2"
@@ -46,6 +48,8 @@ numba = ">=0.60"
 Cython = ">=3.0.11"
 pyFFTW = ">=0.15"
 h5py = ">=3.12.1"
+pyqt5 = "*"
+
 #nsls2ptycho = { path = "/ptycho_gui", editable = true }
 
 #posix_ipc = "==1.1.1"

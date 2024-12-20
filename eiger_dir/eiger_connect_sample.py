@@ -157,17 +157,19 @@ class PositionSimTxOp(Operator):
         with h5py.File(position_data_path) as f:
             self.points = f["points"][()].T
             self.N = self.points.shape[0]
+            self.index = 0
 
     def setup(self, spec: OperatorSpec):
         spec.input("index")
         spec.output("point")
 
     def compute(self, op_input, op_output, context):
-        index = op_input.receive("index")
-        if index < self.N:
-            self.logger.info(f"Emitting {index} point coordinate")
-            point = self.points[index, :]
+        op_input.receive("index")
+        if self.index < self.N:
+            self.logger.info(f"Emitting {self.index} point coordinate")
+            point = self.points[self.index, :]
             op_output.emit(point, "point")
+            self.index += 1
 
 class PositionRxOp(Operator):
     def __init__(self, *args, **kwargs):
@@ -248,11 +250,107 @@ class ReconOp(Operator):
         self.recon_obj.recon_ptycho()
         self.logger.info("Reconstruction finished")
         
-        op_output.emit(1, "result")
+        op_output.emit(self.recon_obj.recon.obj_ave, "result")
+        # op_output.emit(1, "result")
     
     def stop(self, *args, **kwargs):
         self.recon_obj.finalize()
         super().stop(*args, **kwargs)
+
+
+
+# def init_pg_app():
+import pyqtgraph as pg
+from pyqtgraph.Qt import QtCore, QtWidgets
+app = pg.mkQApp()
+
+win = QtWidgets.QMainWindow()
+win.resize(800,1200)
+win.setWindowTitle('Ptycho Data and Reconstruction View')
+cw = QtWidgets.QWidget()
+win.setCentralWidget(cw)
+l = QtWidgets.QGridLayout()
+
+
+cw.setLayout(l)
+imv1 = pg.ImageView()
+pw1 = pg.PlotWidget()
+imv2 = pg.ImageView()
+l.addWidget(imv1, 0, 0)
+l.addWidget(pw1, 1, 0)
+# ppos = l.addPlot(title='positions')
+# curve = ppos.plot()
+l.addWidget(imv2, 2, 0)
+
+l.setRowMinimumHeight(0, 400)
+l.setRowMinimumHeight(1, 400)
+l.setRowMinimumHeight(2, 400)
+win.show()
+
+class PtychoDataViz(Operator):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.counter = 0
+    
+    def setup(self, spec):
+        spec.input("image")
+        
+    def compute(self, op_input, op_output, context):
+        image = op_input.receive("image")
+        if self.counter > 10:
+            bla = image.copy()
+            bla[207, 211] = 0
+            # bla[bla>500] = 500
+            global imv1
+            imv1.setImage(bla/250, autoHistogramRange=False, autoLevels=False)
+            # imv1.setHistogramRange(0, 500)
+            imv1.setLevels(0, 1)
+            self.counter = 0
+        else:
+            self.counter += 1
+
+class PtychoPosViz(Operator):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.data = []
+        self.counter = 0
+    
+    def setup(self, spec):
+        spec.input("point")
+        
+    def compute(self, op_input, op_output, context):
+        global pw1
+        point = op_input.receive("point")
+        self.data.append(point)
+        if self.counter>10:
+            _data = np.array(self.data)
+            pw1.plot(_data[:, 0], _data[:, 1])
+            self.counter = 0
+        else:
+            self.counter += 1
+            
+
+class PtychoReconViz(Operator):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    
+    def setup(self, spec):
+        spec.input("input")
+        
+    def compute(self, op_input, op_output, context):
+        global imv2
+        image = op_input.receive("input")
+        bla = np.abs(image.copy())[:, ::-1]
+        bla_min, bla_max = np.percentile(bla[bla>0], 5), np.percentile(bla[bla>0], 95)
+        bla = ((bla - bla_min)/ (bla_max - bla_min) + 0.5) / 2
+        
+        # bla[207, 211] = 0
+        # bla[bla>500] = 500
+        # imv2.setImage(bla, autoHistogramRange=False, autoLevels=False)
+        imv2.setImage(bla, autoHistogramRange=False, autoLevels=False)
+        imv2.setHistogramRange(-0.5, 1.5)
+        imv2.setLevels(-0.5, 1.5)
 
 
 # @create_op(inputs=("image", "point"))
@@ -278,13 +376,19 @@ class EigerPtychoApp(Application):
         pos_rx = PositionRxOp(self, name="pos_rx")
         gather = GatherOp(self, name="gather")
         recon = ReconOp(self, name="recon", param=recon_param, postprocessing_flag=False)
-        sink = sink_func(self, name="sink")
-
+        # sink = sink_func(self, name="sink")
+        data_viz = PtychoDataViz(self, name="data_viz")
+        point_viz = PtychoPosViz(self, name="point_viz")
+        recon_viz = PtychoReconViz(self, name="recon_viz")
+        
         self.add_flow(eiger_zmq_rx, gather, {("image", "image")})
+        self.add_flow(eiger_zmq_rx, data_viz, {("image", "image")})
         self.add_flow(pos_rx, gather, {("point", "point")})
+        self.add_flow(pos_rx, point_viz, {("point", "point")})
         # self.add_flow(gather, sink, {("detmap", "detmap"), ("points", "points")})
         self.add_flow(gather, recon, {("detmap", "detmap"), ("points", "points")})
-        self.add_flow(recon, sink)
+        # self.add_flow(recon, sink)
+        self.add_flow(recon, recon_viz)
         
         if simulate_position_data_stream:
             pos_sim_tx = PositionSimTxOp(self, name="pos_sim_tx")
@@ -337,10 +441,19 @@ if __name__ == "__main__":
         position_data_path = f"/test_data/{args.position_data_source}"
     
     recon_param = parse_config('/eiger_dir/ptycho_config',Param())
-    recon_param.working_directory = "/test_data/"
+    recon_param.working_directory = "/eiger_dir/"
     recon_param.gpus = [0]
     # print(f"{recon_param.shm_name=}")
     recon_param.scan_num = 257331
 
     app = EigerPtychoApp()
-    app.run()
+    
+    import threading
+    def app_run():
+        global app
+        app.run()
+    thread = threading.Thread(target=app_run)
+    thread.start()
+    
+    print("I AM HERE")
+    pg.exec()

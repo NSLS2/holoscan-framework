@@ -45,7 +45,16 @@ podman run --rm --net host -it \
     -e OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1 \
     -e OMPI_COMM_WORLD_LOCAL_RANK=0 \
     -e OMPI_COMM_WORLD_LOCAL_SIZE=1 \
+    -e QT_QPA_PLATFORM=xcb \
+    -e QT_DEBUG_PLUGINS=1 \
+    -e DISPLAY=$DISPLAY \
+    -v /tmp/.X11-unix:/tmp/.X11-unix\
     --device nvidia.com/gpu=all hxn-ptycho-holoscan
+```
+
+```
+<!-- -v /usr/lib/x86_64-linux-gnu/qt5/plugins/platforms:/usr/bin/platforms \ -->
+<!-- -e QT_QPA_PLATFORM=offscreen \ -->
 ```
 
 Since it is easier to manage virtual environment, packaging and version control via `pixi`, we use the following `pixi.toml` to generate a virtual conda environment inside a directory named `eiger_dir` we mounted while starting the container
