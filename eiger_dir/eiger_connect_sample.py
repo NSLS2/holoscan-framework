@@ -31,6 +31,11 @@ from holoscan.logger import LogLevel, set_log_level
 from holoscan.decorator import create_op
 # from holoscan.operators import HolovizOp
 
+simulate_position_data_stream = None
+eiger_ip = None
+eiger_port = None
+msg_format = None
+
 supported_encodings = {"bs32-lz4<": "bslz4", "lz4<": "lz4"}
 supported_types = {"uint32": "uint32"}
 def decode_json_message(zmq_message) -> tuple[str, npt.NDArray]:
@@ -90,15 +95,17 @@ def decode_cbor_message(zmq_message) -> tuple[str, npt.NDArray]:
 
 
 class EigerZmqRxOp(Operator):
-    def __init__(self, fragment, *args, **kwargs):
-        super().__init__(fragment, *args, **kwargs)
-        self.logger = logging.getLogger("EigerZmqRxOp")
-        logging.basicConfig(level=logging.INFO)
-
+    def __init__(self, fragment, *args,
+                 eiger_ip:str=None,
+                 eiger_port:str=None,
+                 msg_format:str=None,
+                 simulate_position_data_stream:bool=False,
+                 **kwargs):
+        
         self.endpoint = f"tcp://{eiger_ip}:{eiger_port}"
         self.msg_format = msg_format
         self.count = 0
-
+        self.simulate_position_data_stream = simulate_position_data_stream
         context = zmq.Context()
         self.socket = context.socket(zmq.PULL)
 
@@ -106,10 +113,14 @@ class EigerZmqRxOp(Operator):
             self.socket.connect(self.endpoint)
         except socket.error:
             self.logger.error("Failed to create socket")
+        
+        super().__init__(fragment, *args, **kwargs)
+        self.logger = logging.getLogger("EigerZmqRxOp")
+        logging.basicConfig(level=logging.INFO)
 
     def setup(self, spec: OperatorSpec):
         spec.output("image")
-        if simulate_position_data_stream:
+        if self.simulate_position_data_stream:
             spec.output("count")
 
 
@@ -126,7 +137,7 @@ class EigerZmqRxOp(Operator):
                     self.count += 1
                     self.logger.info(f"Successfully processed {self.count} frames")
                     op_output.emit(image_data, "image")
-                    if simulate_position_data_stream:
+                    if self.simulate_position_data_stream:
                         op_output.emit(self.count, "count") # emit count to trigger the position transmitter to emit corresponding point
                 else: # probably should have a better handling of start/end messages
                     self.logger.info("-" * 80)
@@ -150,7 +161,7 @@ class PositionSimTxOp(Operator):
     '''
     Simulator of position data stream. Receives a signal from EigerZmqExOp and emits corresponding point data.
     '''
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, position_data_path:str=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.logger = logging.getLogger("PositionSimTxOp")
         logging.basicConfig(level=logging.INFO)
@@ -172,19 +183,22 @@ class PositionSimTxOp(Operator):
             self.index += 1
 
 class PositionRxOp(Operator):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args,
+                 simulate_position_data_stream:bool=None,
+                 **kwargs):
+        self.simulate_position_data_stream = simulate_position_data_stream
         super().__init__(*args, **kwargs)
         self.logger = logging.getLogger("PositionRxOp")
         logging.basicConfig(level=logging.INFO)
         # some logic that goes into setting up the position data receiver (ZMQ, UDP, etc)
 
     def setup(self, spec: OperatorSpec):
-        if simulate_position_data_stream:
+        if self.simulate_position_data_stream:
             spec.input("point_input")
         spec.output("point")
 
     def compute(self, op_input, op_output, context):
-        if simulate_position_data_stream:
+        if self.simulate_position_data_stream:
             data = op_input.receive("point_input")
         else:
             data = np.array([0, 0]) # placeholder - this should be changed to something that will actually receive the data
@@ -259,99 +273,6 @@ class ReconOp(Operator):
 
 
 
-# def init_pg_app():
-import pyqtgraph as pg
-from pyqtgraph.Qt import QtCore, QtWidgets
-app = pg.mkQApp()
-
-win = QtWidgets.QMainWindow()
-win.resize(800,1200)
-win.setWindowTitle('Ptycho Data and Reconstruction View')
-cw = QtWidgets.QWidget()
-win.setCentralWidget(cw)
-l = QtWidgets.QGridLayout()
-
-
-cw.setLayout(l)
-imv1 = pg.ImageView()
-pw1 = pg.PlotWidget()
-imv2 = pg.ImageView()
-l.addWidget(imv1, 0, 0)
-l.addWidget(pw1, 1, 0)
-# ppos = l.addPlot(title='positions')
-# curve = ppos.plot()
-l.addWidget(imv2, 2, 0)
-
-l.setRowMinimumHeight(0, 400)
-l.setRowMinimumHeight(1, 400)
-l.setRowMinimumHeight(2, 400)
-win.show()
-
-class PtychoDataViz(Operator):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.counter = 0
-    
-    def setup(self, spec):
-        spec.input("image")
-        
-    def compute(self, op_input, op_output, context):
-        image = op_input.receive("image")
-        if self.counter > 10:
-            bla = image.copy()
-            bla[207, 211] = 0
-            # bla[bla>500] = 500
-            global imv1
-            imv1.setImage(bla/250, autoHistogramRange=False, autoLevels=False)
-            # imv1.setHistogramRange(0, 500)
-            imv1.setLevels(0, 1)
-            self.counter = 0
-        else:
-            self.counter += 1
-
-class PtychoPosViz(Operator):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.data = []
-        self.counter = 0
-    
-    def setup(self, spec):
-        spec.input("point")
-        
-    def compute(self, op_input, op_output, context):
-        global pw1
-        point = op_input.receive("point")
-        self.data.append(point)
-        if self.counter>10:
-            _data = np.array(self.data)
-            pw1.plot(_data[:, 0], _data[:, 1])
-            self.counter = 0
-        else:
-            self.counter += 1
-            
-
-class PtychoReconViz(Operator):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-    
-    def setup(self, spec):
-        spec.input("input")
-        
-    def compute(self, op_input, op_output, context):
-        global imv2
-        image = op_input.receive("input")
-        bla = np.abs(image.copy())[:, ::-1]
-        bla_min, bla_max = np.percentile(bla[bla>0], 5), np.percentile(bla[bla>0], 95)
-        bla = ((bla - bla_min)/ (bla_max - bla_min) + 0.5) / 2
-        
-        # bla[207, 211] = 0
-        # bla[bla>500] = 500
-        # imv2.setImage(bla, autoHistogramRange=False, autoLevels=False)
-        imv2.setImage(bla, autoHistogramRange=False, autoLevels=False)
-        imv2.setHistogramRange(-0.5, 1.5)
-        imv2.setLevels(-0.5, 1.5)
-
 
 # @create_op(inputs=("image", "point"))
 # def sink_func(image, point):
@@ -368,33 +289,57 @@ def sink_func(result):
     print(f"SinkOp received the result from reconstruction {result=}")
 
 
-class EigerPtychoApp(Application):
+class EigerPtychoAppBase(Application):
+    def __init__(self, *args,
+                 eiger_ip:str=None,
+                 eiger_port:str=None,
+                 msg_format:str=None,
+                 simulate_position_data_stream:bool=None,
+                 position_data_path:str=None,
+                 recon_param=None,
+                 **kwargs):
+        super().__init__(*args, **kwargs)
+        self.eiger_ip = eiger_ip
+        self.eiger_port = eiger_port
+        self.msg_format = msg_format
+        self.simulate_position_data_stream = simulate_position_data_stream
+        self.position_data_path = position_data_path
+        self.recon_param = recon_param
+    
     def compose(self):
-        global simulate_position_data_stream, recon_param
-        
-        eiger_zmq_rx = EigerZmqRxOp(self, name="eiger_zmq_rx")
-        pos_rx = PositionRxOp(self, name="pos_rx")
+        eiger_zmq_rx = EigerZmqRxOp(self,
+                                    eiger_ip=self.eiger_ip,
+                                    eiger_port=self.eiger_port,
+                                    msg_format=self.msg_format,
+                                    simulate_position_data_stream=self.simulate_position_data_stream,
+                                    name="eiger_zmq_rx")
+        pos_rx = PositionRxOp(self,
+                              simulate_position_data_stream=self.simulate_position_data_stream,
+                              name="pos_rx")
         gather = GatherOp(self, name="gather")
-        recon = ReconOp(self, name="recon", param=recon_param, postprocessing_flag=False)
-        # sink = sink_func(self, name="sink")
-        data_viz = PtychoDataViz(self, name="data_viz")
-        point_viz = PtychoPosViz(self, name="point_viz")
-        recon_viz = PtychoReconViz(self, name="recon_viz")
-        
+        recon = ReconOp(self, param=self.recon_param,
+                        postprocessing_flag=False,
+                        name="recon")
         self.add_flow(eiger_zmq_rx, gather, {("image", "image")})
-        self.add_flow(eiger_zmq_rx, data_viz, {("image", "image")})
         self.add_flow(pos_rx, gather, {("point", "point")})
-        self.add_flow(pos_rx, point_viz, {("point", "point")})
-        # self.add_flow(gather, sink, {("detmap", "detmap"), ("points", "points")})
         self.add_flow(gather, recon, {("detmap", "detmap"), ("points", "points")})
-        # self.add_flow(recon, sink)
-        self.add_flow(recon, recon_viz)
         
-        if simulate_position_data_stream:
-            pos_sim_tx = PositionSimTxOp(self, name="pos_sim_tx")
+        if self.simulate_position_data_stream:
+            pos_sim_tx = PositionSimTxOp(self,
+                                         position_data_path=self.position_data_path,
+                                         name="pos_sim_tx")
             self.add_flow(eiger_zmq_rx, pos_sim_tx, {("count", "index")})
             self.add_flow(pos_sim_tx, pos_rx)
+        
+        self._eiger_zmq_rx_pointer = eiger_zmq_rx
+        self._pos_rx_pointer = pos_rx
+        self._recon_pointer = recon
 
+class EigerPtychoApp(EigerPtychoAppBase):
+    def compose(self):
+        super().compose()
+        sink = sink_func(self, name="sink")
+        self.add_flow(self._recon_pointer, sink)
 
 
 if __name__ == "__main__":
@@ -446,14 +391,13 @@ if __name__ == "__main__":
     # print(f"{recon_param.shm_name=}")
     recon_param.scan_num = 257331
 
-    app = EigerPtychoApp()
+    app = EigerPtychoApp(
+        eiger_ip=eiger_ip,
+        eiger_port=eiger_port,
+        msg_format=msg_format,
+        simulate_position_data_stream=simulate_position_data_stream,
+        position_data_path=position_data_path,
+        recon_param=recon_param)
+    app.run()
     
-    import threading
-    def app_run():
-        global app
-        app.run()
-    thread = threading.Thread(target=app_run)
-    thread.start()
     
-    print("I AM HERE")
-    pg.exec()
