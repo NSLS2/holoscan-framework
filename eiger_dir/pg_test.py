@@ -23,31 +23,61 @@
 
 import pyqtgraph as pg
 from pyqtgraph.Qt import QtCore, QtWidgets
-app = pg.mkQApp()
 
-win = QtWidgets.QMainWindow()
-win.resize(800,900)
-win.setWindowTitle('Ptycho Data and Reconstruction View')
-cw = QtWidgets.QWidget()
-win.setCentralWidget(cw)
-l = QtWidgets.QGridLayout()
-
-
-cw.setLayout(l)
-imv1 = pg.ImageView()
-pw1 = pg.PlotWidget()
-imv2 = pg.ImageView()
-l.addWidget(imv1, 0, 0)
-l.addWidget(pw1, 1, 0)
-# ppos = l.addPlot(title='positions')
-# curve = ppos.plot()
-l.addWidget(imv2, 2, 0)
-
-l.setRowMinimumHeight(0, 300)
-l.setRowMinimumHeight(2, 300)
-win.show()
-
-pw1.plot([0,1,2,3], [0,1,2,1])
-
+class MainWindow(QtWidgets.QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle('Ptycho Data and Reconstruction View')
+        self.resize(800, 1200)
+        cw = QtWidgets.QWidget()
+        self.setCentralWidget(cw)
+        l = QtWidgets.QGridLayout()
+        cw.setLayout(l)
+        imv1 = pg.ImageView()
+        pw1 = pg.PlotWidget()
+        imv2 = pg.ImageView()
+        l.addWidget(imv1, 0, 0)
+        l.addWidget(pw1, 1, 0)
+        # ppos = l.addPlot(title='positions')
+        # curve = ppos.plot()
+        l.addWidget(imv2, 2, 0)
+        l.setRowMinimumHeight(0, 300)
+        l.setRowMinimumHeight(2, 300)
+        # win.show()
+        
+        pw1.plot([0,1,2,3], [0,1,2,1])
+        
 if __name__ == '__main__':
-    pg.exec()
+    app = QtWidgets.QApplication([])
+    main_window = MainWindow()
+    main_window.show()
+    app.exec_()
+
+# app = pg.mkQApp()
+
+# win = QtWidgets.QMainWindow()
+# win.resize(800,900)
+# win.setWindowTitle('Ptycho Data and Reconstruction View')
+# cw = QtWidgets.QWidget()
+# win.setCentralWidget(cw)
+# l = QtWidgets.QGridLayout()
+
+
+# cw.setLayout(l)
+# imv1 = pg.ImageView()
+# pw1 = pg.PlotWidget()
+# imv2 = pg.ImageView()
+# l.addWidget(imv1, 0, 0)
+# l.addWidget(pw1, 1, 0)
+# # ppos = l.addPlot(title='positions')
+# # curve = ppos.plot()
+# l.addWidget(imv2, 2, 0)
+
+# l.setRowMinimumHeight(0, 300)
+# l.setRowMinimumHeight(2, 300)
+# win.show()
+
+# pw1.plot([0,1,2,3], [0,1,2,1])
+
+# if __name__ == '__main__':
+#     pg.exec()
