@@ -206,6 +206,37 @@ class PositionRxOp(Operator):
         op_output.emit(data, "point")
 
 
+class ImagePreprocessOp(Operator):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.logger = logging.getLogger("ImagePreprocessOp")
+        logging.basicConfig(level=logging.INFO)
+        self.roi = np.array([[1, 257], [1,257]])
+        self.detmap_threshold = 0
+        self.badpixels = np.array([[207], [211]])
+        
+    def setup(self, spec: OperatorSpec):
+        spec.input("image")
+        spec.output("diff_amp")
+        
+    def compute(self, op_input, op_output, context):
+        _image = op_input.receive("image")
+        image = _image.copy()
+        for bd in self.badpixels.T:
+            x = int(bd[0])
+            y = int(bd[1])
+            image[x,y] = np.median(image[x-1:x+2,y-1:y+2])
+            
+        image = image[self.roi[0,0]:self.roi[0,1], self.roi[1,0]:self.roi[1,1]]
+        image = np.rot90(image,axes=(1,0))
+        image = np.fft.fftshift(image,axes=(1,0))
+        if self.detmap_threshold > 0:
+            image[image<self.detmap_threshold] = 0
+        # diff_l = np.zeros_like(image, dtype=float_precision)
+        diff_amp = np.sqrt(image)
+        op_output.emit(diff_amp, "diff_amp")
+        
+
 class GatherOp(Operator):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -260,7 +291,7 @@ class ReconOp(Operator):
         nz = detmap.shape[0]
         ic = np.ones(points.shape[0])
         
-        self.recon_obj.set_data_arrays(detmap, points.T, ic, nz)
+        self.recon_obj.set_data_arrays(detmap, points.T, ic, nz, preprocess=False)
         self.recon_obj.recon_ptycho()
         self.logger.info("Reconstruction finished")
         
@@ -316,11 +347,13 @@ class EigerPtychoAppBase(Application):
         pos_rx = PositionRxOp(self,
                               simulate_position_data_stream=self.simulate_position_data_stream,
                               name="pos_rx")
+        preproc_op = ImagePreprocessOp(self, name="preproc_op")
         gather = GatherOp(self, name="gather")
         recon = ReconOp(self, param=self.recon_param,
                         postprocessing_flag=False,
                         name="recon")
-        self.add_flow(eiger_zmq_rx, gather, {("image", "image")})
+        self.add_flow(eiger_zmq_rx, preproc_op, {("image", "image")})
+        self.add_flow(preproc_op, gather, {("diff_amp", "image")})
         self.add_flow(pos_rx, gather, {("point", "point")})
         self.add_flow(gather, recon, {("detmap", "detmap"), ("points", "points")})
         
