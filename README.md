@@ -46,7 +46,7 @@ podman run --rm --net host -it \
     -e OMPI_COMM_WORLD_LOCAL_RANK=0 \
     -e OMPI_COMM_WORLD_LOCAL_SIZE=1 \
     -e QT_QPA_PLATFORM=xcb \
-    -e QT_DEBUG_PLUGINS=1 \
+    -e QT_DEBUG_PLUGINS=0 \
     -e DISPLAY=$DISPLAY \
     -v /tmp/.X11-unix:/tmp/.X11-unix\
     --device nvidia.com/gpu=all hxn-ptycho-holoscan

@@ -237,15 +237,37 @@ class ImagePreprocessOp(Operator):
         op_output.emit(diff_amp, "diff_amp")
         
 
+class PositionPreprocessOp(Operator):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.logger = logging.getLogger("PositionPreprocessOp")
+        logging.basicConfig(level=logging.INFO)
+        self.point_base = None
+        
+    def setup(self, spec: OperatorSpec):
+        spec.input("point")
+        spec.output("point_rel")
+        
+    def compute(self, op_input, op_output, context):
+        point = op_input.receive("point")
+        
+        if self.point_base is None:
+            self.point_base = point
+        
+        op_output.emit(point - self.point_base, "point_rel")
+        
+
 class GatherOp(Operator):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.logger = logging.getLogger("GatherOp")
         logging.basicConfig(level=logging.INFO)
-        self.image_list = []
         self.point_list = []
         self.counter = 0
         self.batchsize = 200
+        
+        self.diff_d_to_add = cp.zeros((self.batchsize, 256, 256))
+        self.points_to_add = cp.zeros((2, self.batchsize))
 
     def setup(self, spec: OperatorSpec):
         spec.input("image")
@@ -257,16 +279,13 @@ class GatherOp(Operator):
         image = op_input.receive("image")
         point = op_input.receive("point")
         
-        self.image_list.append(image)
-        self.point_list.append(point)
-        
         if self.counter < (self.batchsize - 1):
+            self.diff_d_to_add[self.counter, :, :] = image
+            self.points_to_add[:, self.counter] = point
             self.counter += 1
         else:
-            detmap = np.array(self.image_list)
-            points = np.array(self.point_list)
-            op_output.emit(detmap, "detmap")
-            op_output.emit(points, "points")
+            op_output.emit(self.diff_d_to_add, "detmap")
+            op_output.emit(self.points_to_add, "points")
             self.counter = 0
             self.logger.info("Emitting data batch")
             
@@ -284,14 +303,14 @@ class ReconOp(Operator):
         spec.output("result")
     
     def compute(self, op_input, op_output, context):
-        detmap = op_input.receive("detmap")
-        points = op_input.receive("points")
+        diff_d_to_add = op_input.receive("detmap")
+        points_to_add = op_input.receive("points")
         
         self.logger.info("Reconstruction started")
-        nz = detmap.shape[0]
-        ic = np.ones(points.shape[0])
+        # nz = detmap.shape[0]
+        # ic = np.ones(points.shape[0])
         
-        self.recon_obj.set_data_arrays(detmap, points.T, ic, nz, preprocess=False)
+        self.recon_obj.set_data_arrays(diff_d_to_add, points_to_add)
         self.recon_obj.recon_ptycho()
         self.logger.info("Reconstruction finished")
         
@@ -347,6 +366,8 @@ class EigerPtychoAppBase(Application):
         pos_rx = PositionRxOp(self,
                               simulate_position_data_stream=self.simulate_position_data_stream,
                               name="pos_rx")
+        pos_proc_op = PositionPreprocessOp(self,
+                                        name="pos_proc_op")
         preproc_op = ImagePreprocessOp(self, name="preproc_op")
         gather = GatherOp(self, name="gather")
         recon = ReconOp(self, param=self.recon_param,
@@ -354,7 +375,8 @@ class EigerPtychoAppBase(Application):
                         name="recon")
         self.add_flow(eiger_zmq_rx, preproc_op, {("image", "image")})
         self.add_flow(preproc_op, gather, {("diff_amp", "image")})
-        self.add_flow(pos_rx, gather, {("point", "point")})
+        self.add_flow(pos_rx, pos_proc_op, {("point", "point_rel")})
+        self.add_flow(pos_proc_op, gather, {("point_rel", "point")})
         self.add_flow(gather, recon, {("detmap", "detmap"), ("points", "points")})
         
         if self.simulate_position_data_stream:
