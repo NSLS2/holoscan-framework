@@ -21,12 +21,13 @@ from dectris.compression import decompress
 from scipy import signal as cpu
 from cupyx.scipy import signal as gpu
 
-from nsls2ptycho.core.ptycho.recon_ptycho_gui import ReconObject
+from nsls2ptycho.core.ptycho.recon_ptycho_gui import create_recon_object, deal_with_init_prb
 from nsls2ptycho.core.ptycho.utils import parse_config
 from nsls2ptycho.core.ptycho_param import Param
 
 from holoscan.conditions import CountCondition
 from holoscan.core import Application, Operator, OperatorSpec
+from holoscan.schedulers import GreedyScheduler, MultiThreadScheduler, EventBasedScheduler
 from holoscan.logger import LogLevel, set_log_level
 from holoscan.decorator import create_op
 # from holoscan.operators import HolovizOp
@@ -135,19 +136,20 @@ class EigerZmqRxOp(Operator):
 
                 if msg_type == "image":
                     self.count += 1
-                    self.logger.info(f"Successfully processed {self.count} frames")
+                    # self.logger.info(f"Successfully processed {self.count} frames")
                     op_output.emit(image_data, "image")
                     if self.simulate_position_data_stream:
                         op_output.emit(self.count, "count") # emit count to trigger the position transmitter to emit corresponding point
                 else: # probably should have a better handling of start/end messages
-                    self.logger.info("-" * 80)
+                    pass
+                    # self.logger.info("-" * 80)
 
-                    if self.count == 0:
-                        self.logger.info("Image series start")
-                    else:
-                        self.logger.info("Image series end")
-                        self.count = 0
-                    self.logger.info("-" * 80)
+                    # if self.count == 0:
+                    #     # self.logger.info("Image series start")
+                    # else:
+                    #     # self.logger.info("Image series end")
+                    #     self.count = 0
+                    # # self.logger.info("-" * 80)
 
             except Exception as ex:
                 result = "ERROR: Failed to process message: {ex}"
@@ -177,7 +179,7 @@ class PositionSimTxOp(Operator):
     def compute(self, op_input, op_output, context):
         op_input.receive("index")
         if self.index < self.N:
-            self.logger.info(f"Emitting {self.index} point coordinate")
+            # self.logger.info(f"Emitting {self.index} point coordinate")
             point = self.points[self.index, :]
             op_output.emit(point, "point")
             self.index += 1
@@ -202,7 +204,7 @@ class PositionRxOp(Operator):
             data = op_input.receive("point_input")
         else:
             data = np.array([0, 0]) # placeholder - this should be changed to something that will actually receive the data
-        self.logger.info(f"Emitting point data {data}")
+        # self.logger.info(f"Emitting point data {data}")
         op_output.emit(data, "point")
 
 
@@ -251,10 +253,11 @@ class PositionPreprocessOp(Operator):
     def compute(self, op_input, op_output, context):
         point = op_input.receive("point")
         
-        if self.point_base is None:
-            self.point_base = point
+        # if self.point_base is None:
+            # self.point_base = point
         
-        op_output.emit(point - self.point_base, "point_rel")
+        # op_output.emit(point - self.point_base, "point_rel")
+        op_output.emit(point, "point_rel")
         
 
 class GatherOp(Operator):
@@ -264,10 +267,10 @@ class GatherOp(Operator):
         logging.basicConfig(level=logging.INFO)
         self.point_list = []
         self.counter = 0
-        self.batchsize = 200
+        self.batchsize = 500
         
-        self.diff_d_to_add = cp.zeros((self.batchsize, 256, 256))
-        self.points_to_add = cp.zeros((2, self.batchsize))
+        self.diff_d_to_add = np.zeros((self.batchsize, 256, 256))
+        self.points_to_add = np.zeros((2, self.batchsize))
 
     def setup(self, spec: OperatorSpec):
         spec.input("image")
@@ -279,15 +282,17 @@ class GatherOp(Operator):
         image = op_input.receive("image")
         point = op_input.receive("point")
         
-        if self.counter < (self.batchsize - 1):
-            self.diff_d_to_add[self.counter, :, :] = image
-            self.points_to_add[:, self.counter] = point
+        self.diff_d_to_add[self.counter, :, :] = image
+        self.points_to_add[:, self.counter] = point
+        
+        if self.counter < (self.batchsize - 1):    
             self.counter += 1
         else:
+            print(f"{self.points_to_add[:, 0] = } <<<<<<<<<<<<<<<<<<<<<<<<<<<")
             op_output.emit(self.diff_d_to_add, "detmap")
             op_output.emit(self.points_to_add, "points")
             self.counter = 0
-            self.logger.info("Emitting data batch")
+            # self.logger.info("Emitting data batch")
             
 
 class ReconOp(Operator):
@@ -295,7 +300,8 @@ class ReconOp(Operator):
         self.logger = logging.getLogger("ReconOp")
         logging.basicConfig(level=logging.INFO)
         super().__init__(*args, **kwargs)
-        self.recon_obj = ReconObject(param=param, postprocessing_flag=postprocessing_flag)
+        self.param = param
+        self.recon = create_recon_object(param)
         
     def setup(self, spec):
         spec.input("detmap")
@@ -306,23 +312,47 @@ class ReconOp(Operator):
         diff_d_to_add = op_input.receive("detmap")
         points_to_add = op_input.receive("points")
         
-        self.logger.info("Reconstruction started")
-        # nz = detmap.shape[0]
-        # ic = np.ones(points.shape[0])
+        if self.recon.prb is None:
+            deal_with_init_prb(self.recon, self.param, diff_d_to_add) 
         
-        self.recon_obj.set_data_arrays(diff_d_to_add, points_to_add)
-        self.recon_obj.recon_ptycho()
-        self.logger.info("Reconstruction finished")
+        if not self.recon.is_setup:
+            self.recon.recon_ptycho_init()
+
+        self.recon.update_arrays(diff_d_to_add, points_to_add * -1)
         
-        op_output.emit(self.recon_obj.recon.obj_ave, "result")
+        # self.logger.info("Reconstruction started")
+        
+        self.recon.recon_ptycho_run()
+        # self.recon.quick_fig_save_for_test()
+        output = self.recon.fetch_obj_ave()
+        # self.logger.info("Reconstruction finished")
+        
+        op_output.emit(output, "result")
         # op_output.emit(1, "result")
     
-    def stop(self, *args, **kwargs):
-        self.recon_obj.finalize()
-        super().stop(*args, **kwargs)
+    # def stop(self, *args, **kwargs):
+    #     self.recon.finalize()
+    #     super().stop(*args, **kwargs)
 
 
-
+class BatchedResultStackerOp(Operator):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.logger = logging.getLogger("BatchedResultStackerOp")
+        logging.basicConfig(level=logging.INFO)
+        self.batched_result = []
+        
+    def setup(self, spec: OperatorSpec):
+        spec.input("in")
+        spec.output("out")
+        
+    def compute(self, op_input, op_output, context):
+        obj = op_input.receive("in")
+        self.batched_result.append(obj)
+        bla = np.array(self.batched_result)
+        # self.logger.info(f"Emitting obj_data with shape={bla.shape}")
+        out = np.nanmean(bla, axis=0)
+        op_output.emit(out, "out")
 
 # @create_op(inputs=("image", "point"))
 # def sink_func(image, point):
@@ -373,11 +403,13 @@ class EigerPtychoAppBase(Application):
         recon = ReconOp(self, param=self.recon_param,
                         postprocessing_flag=False,
                         name="recon")
+        batch_stacker = BatchedResultStackerOp(self, name="batch_stacker")
         self.add_flow(eiger_zmq_rx, preproc_op, {("image", "image")})
         self.add_flow(preproc_op, gather, {("diff_amp", "image")})
-        self.add_flow(pos_rx, pos_proc_op, {("point", "point_rel")})
+        self.add_flow(pos_rx, pos_proc_op, {("point", "point")})
         self.add_flow(pos_proc_op, gather, {("point_rel", "point")})
         self.add_flow(gather, recon, {("detmap", "detmap"), ("points", "points")})
+        self.add_flow(recon, batch_stacker)
         
         if self.simulate_position_data_stream:
             pos_sim_tx = PositionSimTxOp(self,
@@ -388,13 +420,13 @@ class EigerPtychoAppBase(Application):
         
         self._eiger_zmq_rx_pointer = eiger_zmq_rx
         self._pos_rx_pointer = pos_rx
-        self._recon_pointer = recon
+        self._graph_head_pointer = batch_stacker
 
 class EigerPtychoApp(EigerPtychoAppBase):
     def compose(self):
         super().compose()
         sink = sink_func(self, name="sink")
-        self.add_flow(self._recon_pointer, sink)
+        self.add_flow(self._graph_head_pointer, sink)
 
 
 if __name__ == "__main__":
@@ -453,6 +485,24 @@ if __name__ == "__main__":
         simulate_position_data_stream=simulate_position_data_stream,
         position_data_path=position_data_path,
         recon_param=recon_param)
+    
+    # scheduler = EventBasedScheduler(
+    #             app,
+    #             worker_thread_number=16,
+    #             stop_on_deadlock=True,
+    #             stop_on_deadlock_timeout=500,
+    #             name="event_based_scheduler",
+    #         )
+    scheduler = MultiThreadScheduler(
+                app,
+                worker_thread_number=8,
+                check_recession_period_ms=0.5,
+                stop_on_deadlock=True,
+                stop_on_deadlock_timeout=500,
+                name="multithread_scheduler",
+            )
+    app.scheduler(scheduler)
+    
     app.run()
     
     
