@@ -39,18 +39,28 @@ class PtychoDataViz(OperatorWithQtSignal):
 class PtychoPosViz(OperatorWithQtSignal):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.data = []
+        self.batchsize = 500
+        self.index = 0
+        self.data = np.zeros((2, self.batchsize))
     
     def setup(self, spec):
         spec.input("point")
         
     def compute(self, op_input, op_output, context):
         point = op_input.receive("point")
-        self.data.append(point)
+        
+        if self.index < self.batchsize:
+            self.data[:, self.index] = point
+            _to_emit = self.data[:, :(self.index + 1)]
+            self.index += 1
+        else:
+            self.data[:, :-1] = self.data[:, 1:]
+            self.data[:, -1] = point
+            _to_emit = self.data
+    
         if self.counter > 5:
-            _data = np.array(self.data)
-            # emit signal
-            self.qt_signal.emit(_data)
+            print(_to_emit.shape, "<<<<<<<<<<<<<<<<")
+            self.qt_signal.emit(_to_emit * -1)
             self.counter = 0
         else:
             self.counter += 1
@@ -62,9 +72,16 @@ class PtychoReconViz(OperatorWithQtSignal):
         
     def compute(self, op_input, op_output, context):
         image = op_input.receive("input")
-        bla = np.abs(image.copy())[:, ::-1]
-        bla_min, bla_max = np.percentile(bla[bla>0], 5), np.percentile(bla[bla>0], 95)
-        bla = ((bla - bla_min)/ (bla_max - bla_min) + 0.5) / 2
+        nx_obj, ny_obj = image.shape
+        nx_prb, ny_prb, obj_pad = 256, 256, 30
+        disp_x = nx_obj - obj_pad - nx_prb
+        disp_y = ny_obj - obj_pad - ny_prb
+        disp_x_s = nx_obj//2 - disp_x//2
+        disp_y_s = ny_obj//2 - disp_y//2
+        
+        bla = np.flipud(image[disp_x_s:disp_x_s+disp_x,disp_y_s:disp_y_s+disp_y]).T
+        # bla_min, bla_max = np.percentile(bla[bla>0], 1), np.percentile(bla[bla>0], 99)
+        # bla = ((bla - bla_min)/ (bla_max - bla_min) + 0.5) / 2
         # emit signal
         self.qt_signal.emit(bla)
 
@@ -92,7 +109,7 @@ class EigerPtychoVizApp(EigerPtychoAppBase):
         
         self.add_flow(self._eiger_zmq_rx_pointer, data_viz, {("image", "image")})
         self.add_flow(self._pos_rx_pointer, point_viz, {("point", "point")})
-        self.add_flow(self._recon_pointer, recon_viz)
+        self.add_flow(self._graph_head_pointer, recon_viz)
         
     
 
@@ -137,7 +154,7 @@ class MainWindow(QtWidgets.QMainWindow):
         
     def setupUi(self):
         self.setWindowTitle('Ptycho Data and Reconstruction View')
-        self.resize(800, 1200)
+        self.resize(1400, 500)
         cw = QtWidgets.QWidget()
         self.setCentralWidget(cw)
         layout = QtWidgets.QGridLayout()
@@ -147,11 +164,24 @@ class MainWindow(QtWidgets.QMainWindow):
         self.imv2 = pg.ImageView()
         
         layout.addWidget(self.imv1, 0, 0)
-        layout.addWidget(self.pw1, 1, 0)
-        layout.addWidget(self.imv2, 2, 0)
+        layout.addWidget(self.pw1, 0, 1)
+        layout.addWidget(self.imv2, 0, 2)
         
-        layout.setRowMinimumHeight(0, 300)
-        layout.setRowMinimumHeight(2, 300)
+        layout.setColumnMinimumWidth(0, 500)
+        layout.setColumnMinimumWidth(2, 500)
+        
+        self.imv1.ui.histogram.hide()
+        self.imv1.ui.roiBtn.hide()
+        self.imv1.ui.menuBtn.hide()
+        self.imv1.setColorMap(pg.colormap.get('viridis'))
+        
+        self.imv2.ui.histogram.hide()
+        self.imv2.ui.roiBtn.hide()
+        self.imv2.ui.menuBtn.hide()
+        self.imv2.setColorMap(pg.colormap.get('viridis'))
+        
+        self.plot1 = self.pw1.plot([0], [0])
+        
         
     def runHoloscanApp(self):
         """Run the Holoscan application in a separate thread."""
@@ -175,12 +205,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.imv1.setLevels(0, 1)
     
     def pos_draw(self, data):
-        self.pw1.plot(data[:, 0], data[:, 1])
+        # self.pw1.plot(data[:, 0], data[:, 1])
+        self.plot1.setData(data[0, :], data[1, :])
 
     def recon_draw(self, data):
         self.imv2.setImage(data, autoHistogramRange=False, autoLevels=False)
-        self.imv2.setHistogramRange(-0.5, 1.5)
-        self.imv2.setLevels(-0.5, 1.5)
+        self.imv2.setHistogramRange(-1.0, 1.0)
+        self.imv2.setLevels(-0.7, 0.7)
         
 if __name__ == "__main__":
     app = QtWidgets.QApplication([])
