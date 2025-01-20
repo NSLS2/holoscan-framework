@@ -23,6 +23,7 @@
 
 import pyqtgraph as pg
 from pyqtgraph.Qt import QtCore, QtWidgets
+import numpy as np
 
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self):
@@ -45,7 +46,21 @@ class MainWindow(QtWidgets.QMainWindow):
         l.setRowMinimumHeight(2, 300)
         # win.show()
         
-        pw1.plot([0,1,2,3], [0,1,2,1])
+        imv2.ui.histogram.hide()
+        imv2.ui.roiBtn.hide()
+        imv2.ui.menuBtn.hide()
+        imv2.setColorMap(pg.colormap.get('viridis'))
+        
+        bla = pw1.plot([0], [0])
+        bla.setData([0,1,2,3], [10,11,12,11])
+        
+        
+        np.random.seed(1)
+        data = np.random.randn(698, 698)/3
+        imv2.setImage(data, autoHistogramRange=False, autoLevels=False)
+        imv2.setHistogramRange(-1.0, 1.0)
+        imv2.setLevels(-0.7, 0.7)
+        
         
 if __name__ == '__main__':
     app = QtWidgets.QApplication([])
