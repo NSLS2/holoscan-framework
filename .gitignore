@@ -40,3 +40,6 @@ venv/
 
 # egg
 *.egg*/
+
+.ptycho*
+*.png
