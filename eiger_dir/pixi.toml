@@ -7,7 +7,6 @@ version = "0.1.0"
 
 [tasks]
 postinstall = "pip install --no-build-isolation -e /ptycho_gui"
-#postinstall = "pip install -e /ptycho_gui"
 
 [system-requirements]
 libc = { family = "glibc", version = "2.35" }
@@ -29,16 +28,8 @@ pyzmq = ">=26.0"
 scipy = ">=1.14"
 gcc = ">=14.0"
 mpi4py = ">=4.0.1"
-
 pyqtgraph = "==0.13.7"
-#pyfftw = "==0.14.0"
-##pyqt = "==5.15.9"
-##matplotlib = "==3.9.2"
-#pillow = "==10.4.0"
-#openmpi = "==5.0.5"
-#mpi4py = "==4.0.0"
-#cython = "==3.0.11"
-#numba = ">=0.60"
+
 
 [pypi-dependencies]
 holoscan = ">=2.5.0,<2.6.0"
@@ -51,5 +42,4 @@ h5py = ">=3.12.1"
 pyqt5 = "*"
 
 #nsls2ptycho = { path = "/ptycho_gui", editable = true }
-
 #posix_ipc = "==1.1.1"
