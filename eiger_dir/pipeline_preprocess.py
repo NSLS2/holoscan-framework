@@ -68,7 +68,7 @@ class GatherOp(Operator):
         logging.basicConfig(level=logging.INFO)
         self.point_list = []
         self.counter = 0
-        self.batchsize = 500
+        self.batchsize = 512
         
         self.diff_d_to_add = np.zeros((self.batchsize, 256, 256))
         self.points_to_add = np.zeros((2, self.batchsize))
