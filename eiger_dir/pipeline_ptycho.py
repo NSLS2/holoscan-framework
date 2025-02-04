@@ -19,6 +19,8 @@ from holoscan.decorator import create_op
 from pipeline_source import parse_source_args
 from pipeline_preprocess import PreprocAppBase
 
+import nvtx
+
 class ReconOp(Operator):
     def __init__(self, *args, param=None, postprocessing_flag=False, **kwargs):
         self.logger = logging.getLogger("ReconOp")
@@ -37,15 +39,17 @@ class ReconOp(Operator):
         points_to_add = np.asarray(tensor["points"])
         
         if self.recon.prb is None:
-            deal_with_init_prb(self.recon, self.param, diff_d_to_add) 
+            with nvtx.annotate("deal_with_init_prb", color="red"):
+                deal_with_init_prb(self.recon, self.param, diff_d_to_add) 
         
         if not self.recon.is_setup:
-            self.recon.recon_ptycho_init()
-
-        self.recon.update_arrays(diff_d_to_add, points_to_add * -1)
+            with nvtx.annotate("self.recon.recon_ptycho_init()", color="yellow"):
+                self.recon.recon_ptycho_init()
+        
+        with nvtx.annotate("self.recon.update_arrays", color="green"):
+            self.recon.update_arrays(diff_d_to_add, points_to_add * -1)
         
         # self.logger.info("Reconstruction started")
-        
         self.recon.recon_ptycho_run()
         # self.recon.quick_fig_save_for_test()
         output = self.recon.fetch_obj_ave()
@@ -122,13 +126,15 @@ if __name__ == "__main__":
         position_data_path=position_data_path,
         recon_param=recon_param)
     
-    # # scheduler = EventBasedScheduler(
-    # #             app,
-    # #             worker_thread_number=16,
-    # #             stop_on_deadlock=True,
-    # #             stop_on_deadlock_timeout=500,
-    # #             name="event_based_scheduler",
-    # #         )
+    scheduler = EventBasedScheduler(
+                app,
+                worker_thread_number=16,
+                stop_on_deadlock=True,
+                stop_on_deadlock_timeout=500,
+                name="event_based_scheduler",
+            )
+    app.scheduler(scheduler)
+    
     # scheduler = MultiThreadScheduler(
     #             app,
     #             worker_thread_number=8,
