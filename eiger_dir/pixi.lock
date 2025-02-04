@@ -87,6 +87,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/mpi4py-4.0.1-py311ha982e2a_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/ncurses-6.5-he02047a_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/numpy-1.26.4-py311h64a7726_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/nvtx-0.2.10-py311h9ecbd09_2.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/openmpi-5.0.5-hd45feaf_105.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/openssl-3.3.2-hb9d3cd8_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/parso-0.8.4-pyhd8ed1ab_0.conda
@@ -1389,6 +1390,22 @@ packages:
   - pkg:pypi/numpy?source=hash-mapping
   size: 8065890
   timestamp: 1707225944355
+- conda: https://conda.anaconda.org/conda-forge/linux-64/nvtx-0.2.10-py311h9ecbd09_2.conda
+  sha256: f41f2d9f78ed570e55b941116978ca45a76a5acebcae6b6b30729812e22d6139
+  md5: d18c620856cac300ea390e81b06538ab
+  depends:
+  - __glibc >=2.17,<3.0.a0
+  - libgcc >=13
+  - python >=3.11,<3.12.0a0
+  - python_abi 3.11.* *_cp311
+  arch: x86_64
+  platform: linux
+  license: Apache-2.0 WITH LLVM-exception
+  license_family: APACHE
+  purls:
+  - pkg:pypi/nvtx?source=hash-mapping
+  size: 109557
+  timestamp: 1727795688254
 - conda: https://conda.anaconda.org/conda-forge/linux-64/openmpi-5.0.5-hd45feaf_105.conda
   sha256: 56785c0befae7e2bf4a5aa4a5cb4e09026326ff6c58f40d177618c4b996645fa
   md5: 6ddc153492cc74ad5c540ae3204366d0
