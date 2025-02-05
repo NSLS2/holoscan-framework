@@ -38,13 +38,16 @@ class ReconOp(Operator):
         diff_d_to_add = np.asarray(tensor["images"])
         points_to_add = np.asarray(tensor["points"])
         
-        if self.recon.prb is None:
+        if np.all(self.recon.prb == 0): # if probe is trivial it means that it was not fully initialized
             with nvtx.annotate("deal_with_init_prb", color="red"):
-                deal_with_init_prb(self.recon, self.param, diff_d_to_add) 
+                # deal_with_init_prb(self.recon, self.param, diff_d_to_add)
+                prb_init = deal_with_init_prb(self.recon, self.param, diff_d_to_add)
+                self.recon.prb += prb_init.astype(self.recon.complex_precision)
+                self.recon.prb_d[:, :] += cp.array(prb_init, dtype=self.recon.complex_precision, order='C')
         
-        if not self.recon.is_setup:
-            with nvtx.annotate("self.recon.recon_ptycho_init()", color="yellow"):
-                self.recon.recon_ptycho_init()
+        # if not self.recon.is_setup:
+        #     with nvtx.annotate("self.recon.recon_ptycho_init()", color="yellow"):
+        #         self.recon.recon_ptycho_init()
         
         with nvtx.annotate("self.recon.update_arrays", color="green"):
             self.recon.update_arrays(diff_d_to_add, points_to_add * -1)
