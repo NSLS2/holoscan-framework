@@ -1,11 +1,17 @@
 import numpy as np
 from numpy.typing import NDArray
-from eiger_connect_sample import EigerPtychoAppBase
+import cupy as cp
+
+from nsls2ptycho.core.ptycho.recon_ptycho_gui import create_recon_object, deal_with_init_prb
+from nsls2ptycho.core.ptycho.utils import parse_config
+from nsls2ptycho.core.ptycho_param import Param
+
 from holoscan.core import Application, Operator, OperatorSpec
 import pyqtgraph as pg
 from pyqtgraph.Qt import QtCore, QtWidgets
-from nsls2ptycho.core.ptycho.utils import parse_config
-from nsls2ptycho.core.ptycho_param import Param
+
+
+from pipeline_ptycho import PtychoAppBase
 
 gApp = None
 simulate_position_data_stream = None
@@ -86,7 +92,7 @@ class PtychoReconViz(OperatorWithQtSignal):
         self.qt_signal.emit(bla)
 
 
-class EigerPtychoVizApp(EigerPtychoAppBase):
+class EigerPtychoVizApp(PtychoAppBase):
     def __init__(self, *args,
                  request_data_draw=None,
                  request_pos_draw=None,
@@ -98,7 +104,7 @@ class EigerPtychoVizApp(EigerPtychoAppBase):
         self.request_recon_draw = request_recon_draw
     
     def compose(self):
-        super().compose()
+        eiger_zmq_rx, pos_rx, batch_stacker = super().compose()
         data_viz = PtychoDataViz(self, name="data_viz")
         point_viz = PtychoPosViz(self, name="point_viz")
         recon_viz = PtychoReconViz(self, name="recon_viz")
@@ -107,9 +113,9 @@ class EigerPtychoVizApp(EigerPtychoAppBase):
         point_viz.append_qt_signal(self.request_pos_draw)
         recon_viz.append_qt_signal(self.request_recon_draw)
         
-        self.add_flow(self._eiger_zmq_rx_pointer, data_viz, {("image", "image")})
-        self.add_flow(self._pos_rx_pointer, point_viz, {("point", "point")})
-        self.add_flow(self._graph_head_pointer, recon_viz)
+        self.add_flow(eiger_zmq_rx, data_viz, {("image", "image")})
+        self.add_flow(pos_rx, point_viz, {("point", "point")})
+        self.add_flow(batch_stacker, recon_viz)
         
     
 
