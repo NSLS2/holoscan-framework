@@ -6,7 +6,7 @@ docs/build/
 docs/source/reference/generated/
 
 # Builds
-/build
+/eiger_dir/build
 /dist
 
 # pytest
@@ -36,3 +36,13 @@ venv/
 
 #test data
 *.h5
+eiger_simulation/test_data/*
+
+# reconstruction results
+recon_result/
+
+# egg
+*.egg*/
+
+.ptycho*
+*.png

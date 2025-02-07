@@ -1,16 +1,29 @@
 # holoscan-framework
-In order to run the `eiger_connect_sample.py`, we run the holoscan application inside an ubuntu container. However, since basic tools like `vim`, `curl`, `pixi` does not exit in the pure ubuntu container, we create a wrapper-like container with a `Dockerfile` defined as below
-```
-FROM docker.io/nvidia/cuda:12.6.0-base-ubuntu22.04
-RUN apt-get update && apt-get install -y curl vim
-RUN curl -fsSL https://pixi.sh/install.sh | PIXI_HOME=/usr/local bash
-```
-We build a container named `hxn-ptycho-holoscan`:
- ```
- docker build . -t hxn-ptycho-holoscan --network host
- ```
 
-To run turn the Docker container into a podman container, we run the following command:
+This repo contains the implementation for real-time ptychography reconstruction using Holoscan framework. Below are the instructions on deploying the code.
+
+
+## Prerequisites
+Both `ptycho_gui` and `ptycho` repos should be cloned to a folder placed one level above the folder containing the current repo, e.g.:
+
+```
+<repo folder>
+    |---/ptycho/
+    |---/ptycho_gui/
+    |---/holoscan-framework/
+```
+
+## Holoscan App Container
+The code for the Holoscan application is contained in the folder `eiger_dir/`. The Holoscan application can be launched by running the `eiger_connect_sample.py` script.
+
+In order to run, we need to build a container defined in the [Dockerfile](https://github.com/skarakuzu/holoscan-framework/blob/ptycho_step_wise_array_update/eiger_dir/Dockerfile).
+
+To build a container named `hxn-ptycho-holoscan`:
+```
+docker build ./eiger_dir -t hxn-ptycho-holoscan --network host
+```
+
+To turn the Docker container into a podman container, we run the following command:
 ```
 podman pull docker-daemon:hxn-ptycho-holoscan:latest
 ```
@@ -25,14 +38,39 @@ docker.io/library/hxn-ptycho-holoscan    latest                   9777387459f9  
 
 ```
 
-After successfully building the container, we run it via 
+After successfully building the container, we run it via
 ```
-podman run --rm --net host -it -v ./eiger_dir:/eiger_dir -v ./eiger_simulation/test_data:/test_data -w /eiger_dir --device nvidia.com/gpu=all hxn-ptycho-holoscan
+podman run --rm --net host -it \
+    -v ./eiger_dir:/eiger_dir \
+    -v ./eiger_simulation/test_data:/test_data \
+    -v ../ptycho_gui:/ptycho_gui \
+    -v ../ptycho:/ptycho_gui/nsls2ptycho/core/ptycho \
+    -w /eiger_dir \
+    -e OMPI_ALLOW_RUN_AS_ROOT=1 \
+    -e OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1 \
+    -e OMPI_COMM_WORLD_LOCAL_RANK=0 \
+    -e OMPI_COMM_WORLD_LOCAL_SIZE=1 \
+    --device nvidia.com/gpu=all hxn-ptycho-holoscan
+```
+Note that the directories for `ptycho_gui` and `ptycho` are mounted inside the container.
+
+Since it is easier to manage virtual environment, packaging and version control via `pixi`, we use the following `pixi.toml` to generate a virtual conda environment inside a directory named `eiger_holoscan` we mounted while starting the container
+
+To install the environment run the following commands:
+```
+pixi install
+```
+This command will start executing the `pixi.toml` file to create the virtual environment and create a file named `pixi.lock` which shows the information about installed packages. If one needs to remove the existing environment to start a fresh one, it is possible to do it via the `pixi clean` command.
+
+Installation of ptycho code is done separately using pixi command "postinstall" configured in `pixi.toml` file. To install ptycho code environment run the following:
+```
+pixi run postinstall
 ```
 
-Since it is easier to manage virtual environment, packaging and version control via `pixi`, we use the following `pixi.toml` to generate a virtual conda environment inside a directory named `eiger_dir` we mounted while starting the container
-
-The `pixi shell` command will start executing the `pixi.toml` file to create the virtual environment and create a file named `pixi.lock` which shows the information about installed packages. If one needs to remove the existing environment to start a fresh one, it is possible to do it via the `pixi clean` command.
+To enable the pixi environment run
+```
+pixi shell
+```
 
 To run the holoscan example,  `python3 eiger_connect_sample.py`.
 Additional parameters can be passed to the holoscan script to streamline testing and deployment in different environments. For instance, to run the holoscan pipeline with a simulated stream (see below), one needs to change the default settings for eiger ip address and port. In addition, depending on the Simplon API version, the zmq messages can be encoded differently (json vs cbor) and message format can be passed as well:
@@ -40,17 +78,38 @@ Additional parameters can be passed to the holoscan script to streamline testing
 python3 eiger_connect_sample.py --eiger_ip 0.0.0.0 --eiger_port 5555 -m cbor
 ```
 
-# Simulating data stream using test data from HXN
+## Holoscan App Container with vizualization
+(under development)
+To enable vizualization using pyqtgraph, you can launch the container the following way:
+```
+podman run --rm --net host -it \
+    -v ./eiger_dir:/eiger_dir \
+    -v ./eiger_simulation/test_data:/test_data \
+    -v ../ptycho_gui:/ptycho_gui \
+    -v ../ptycho:/ptycho_gui/nsls2ptycho/core/ptycho \
+    -w /eiger_dir \
+    -e OMPI_ALLOW_RUN_AS_ROOT=1 \
+    -e OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1 \
+    -e OMPI_COMM_WORLD_LOCAL_RANK=0 \
+    -e OMPI_COMM_WORLD_LOCAL_SIZE=1 \
+    -e QT_QPA_PLATFORM=xcb \
+    -e QT_DEBUG_PLUGINS=0 \
+    -e DISPLAY=$DISPLAY \
+    -v /tmp/.X11-unix:/tmp/.X11-unix\
+    --device nvidia.com/gpu=all hxn-ptycho-holoscan
+```
+Proceed with installing pixi environment as described above.
+
+## Simulating data stream using test data from HXN
 To test/develop the holoscan pipeline, we can run a simulated data stream.
-Test ptychography scan data recoreded by Eiger should be placed to `/eiger_simulation/test_data/`. Currently, the test files include `scan_257331_raw.h5` and `scan_257331.h5`.
+Test ptychography scan data recoreded by Eiger should be placed to `/eiger_simulation/test_data/`. Currently, the test files include `scan_257331_raw.h5` and `scan_257331.h5`. See communications with Zirui to get access to these files.
 
 To emulate the Eiger data stream, a simulated SimplonAPI 1.8 is used.
 
-To launch the simulated API go to the `./eiger_simulation` folder and build the container:
+To build the container for simulated API:
 
 ```
-cd ./eiger_simulation
-docker build . -t eiger_sim:test --network
+docker build ./eiger_simulation -t eiger_sim:test --network host
 ```
 
 The API uses ports 8000 and 5555 for the simulated detector control and data stream, respectively.

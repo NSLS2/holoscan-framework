@@ -1,4 +1,0 @@
-FROM docker.io/nvidia/cuda:12.6.0-base-ubuntu22.04
-
-RUN apt-get update && apt-get install -y curl vim
-RUN curl -fsSL https://pixi.sh/install.sh | PIXI_HOME=/usr/local bash
