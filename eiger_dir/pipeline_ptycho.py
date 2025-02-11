@@ -35,15 +35,16 @@ class ReconOp(Operator):
     
     def compute(self, op_input, op_output, context):
         tensor = op_input.receive("batch")
-        diff_d_to_add = np.asarray(tensor["images"])
-        points_to_add = np.asarray(tensor["points"])
+        diff_d_to_add = cp.asarray(tensor["diff_amp"])
+        points_to_add = cp.asarray(tensor["points"])
         
         if np.all(self.recon.prb == 0): # if probe is trivial it means that it was not fully initialized
             with nvtx.annotate("deal_with_init_prb", color="red"):
                 # deal_with_init_prb(self.recon, self.param, diff_d_to_add)
                 prb_init = deal_with_init_prb(self.recon, self.param, diff_d_to_add)
-                self.recon.prb += prb_init.astype(self.recon.complex_precision)
-                self.recon.prb_d[:, :] += cp.array(prb_init, dtype=self.recon.complex_precision, order='C')
+                self.recon.prb += cp.asnumpy(prb_init.astype(self.recon.complex_precision))
+                # self.recon.prb_d[:, :] += cp.array(prb_init, dtype=self.recon.complex_precision, order='C')
+                self.recon.prb_d[:, :] += prb_init.astype(self.recon.complex_precision)
         
         # if not self.recon.is_setup:
         #     with nvtx.annotate("self.recon.recon_ptycho_init()", color="yellow"):
@@ -94,13 +95,13 @@ class PtychoAppBase(PreprocAppBase):
         self.recon_param = recon_param
     
     def compose(self):
-        eiger_zmq_rx, pos_rx, gather = super().compose()
+        eiger_zmq_rx, pos_rx, preproc_op = super().compose()
         
         recon = ReconOp(self, param=self.recon_param,
                         postprocessing_flag=False,
                         name="recon")
         batch_stacker = BatchedResultStackerOp(self, name="batch_stacker")
-        self.add_flow(gather, recon)
+        self.add_flow(preproc_op, recon)
         self.add_flow(recon, batch_stacker)
         
         return eiger_zmq_rx, pos_rx, batch_stacker
