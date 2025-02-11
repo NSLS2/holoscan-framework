@@ -177,7 +177,7 @@ class PositionRxOp(Operator):
 
     def compute(self, op_input, op_output, context):
         if self.simulate_position_data_stream:
-            data = op_input.receive("point_input")
+            data = np.asarray(op_input.receive("point_input"))
         else:
             data = np.array([0, 0]) # placeholder - this should be changed to something that will actually receive the data
         # self.logger.info(f"Emitting point data {data}")
