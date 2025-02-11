@@ -24,6 +24,9 @@ target/
 *.swp
 *.swo
 
+#cursorrules
+.cursorrules
+
 #pycharm
 .idea/
 
