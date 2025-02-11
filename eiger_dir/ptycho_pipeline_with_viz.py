@@ -31,13 +31,13 @@ class PtychoDataViz(OperatorWithQtSignal):
         spec.input("image")
         
     def compute(self, op_input, op_output, context):
-        image = op_input.receive("image")
+        image = cp.asnumpy(op_input.receive("image"))
         if self.counter > 10:
-            bla = image.copy()
-            bla[207, 211] = 0
-            bla[bla>500] = 500
+            # bla = image.copy()
+            image[207, 211] = 0
+            image[image>500] = 500
             # emit signal
-            self.qt_signal.emit(bla)
+            self.qt_signal.emit(image)
             self.counter = 0
         else:
             self.counter += 1
@@ -53,7 +53,7 @@ class PtychoPosViz(OperatorWithQtSignal):
         spec.input("point")
         
     def compute(self, op_input, op_output, context):
-        point = op_input.receive("point")
+        point = cp.asnumpy(op_input.receive("point"))
         
         if self.index < self.batchsize:
             self.data[:, self.index] = point
