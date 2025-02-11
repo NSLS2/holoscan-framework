@@ -10,93 +10,118 @@ from holoscan.decorator import create_op, Input
 
 from pipeline_source import EigerRxBase, parse_source_args
 
-class ImagePreprocessOp(Operator):
+class ImageBatchOp(Operator):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.logger = logging.getLogger("ImagePreprocessOp")
+        self.logger = logging.getLogger("ImageBatchOp")
+        logging.basicConfig(level=logging.INFO)
+        self.counter = 0
+        self.batchsize = 512
+        self.images_to_add = cp.zeros((self.batchsize, 257, 257))
+
+    def setup(self, spec: OperatorSpec):
+        spec.input("image")
+        spec.output("image_batch")
+        
+    def compute(self, op_input, op_output, context):
+        image = op_input.receive("image")
+        self.images_to_add[self.counter, :, :] = cp.array(image)
+        
+        if self.counter < (self.batchsize - 1):
+            self.counter += 1
+        else:
+            op_output.emit(self.images_to_add, "image_batch")
+            self.counter = 0
+
+class PointBatchOp(Operator):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.logger = logging.getLogger("PointBatchOp")
+        logging.basicConfig(level=logging.INFO)
+        self.counter = 0
+        self.batchsize = 512
+        self.points_to_add = cp.zeros((2, self.batchsize))
+
+    def setup(self, spec: OperatorSpec):
+        spec.input("point")
+        spec.output("point_batch")
+        
+    def compute(self, op_input, op_output, context):
+        point = op_input.receive("point")
+        self.points_to_add[:, self.counter] = cp.array(point)
+        
+        if self.counter < (self.batchsize - 1):
+            self.counter += 1
+        else:
+            op_output.emit(self.points_to_add, "point_batch")
+            self.counter = 0
+
+class ImagePreprocessorOp(Operator):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.logger = logging.getLogger("ImagePreprocessorOp")
         logging.basicConfig(level=logging.INFO)
         self.roi = np.array([[1, 257], [1,257]])
         self.detmap_threshold = 0
         self.badpixels = np.array([[207], [211]])
         
     def setup(self, spec: OperatorSpec):
-        spec.input("image")
+        spec.input("image_batch")
         spec.output("diff_amp")
         
     def compute(self, op_input, op_output, context):
-        _image = op_input.receive("image")
-        image = _image.copy()
+        images = op_input.receive("image_batch")
+        processed_images = cp.asarray(images)
+        
         for bd in self.badpixels.T:
             x = int(bd[0])
             y = int(bd[1])
-            image[x,y] = np.median(image[x-1:x+2,y-1:y+2])
-            
-        image = image[self.roi[0,0]:self.roi[0,1], self.roi[1,0]:self.roi[1,1]]
-        image = np.rot90(image,axes=(1,0))
-        image = np.fft.fftshift(image,axes=(1,0))
-        if self.detmap_threshold > 0:
-            image[image<self.detmap_threshold] = 0
-        diff_amp = np.sqrt(image)
-        op_output.emit(diff_amp, "diff_amp")
+            processed_images[:, x, y] = cp.median(processed_images[:, x-1:x+2, y-1:y+2], axis=(2, 1))
         
+        processed_images = processed_images[:, self.roi[0,0]:self.roi[0,1], self.roi[1,0]:self.roi[1,1]]
+        processed_images = cp.rot90(processed_images, axes=(2,1))
+        processed_images = cp.fft.fftshift(processed_images, axes=(2,1))
+        if self.detmap_threshold > 0:
+            processed_images[processed_images<self.detmap_threshold] = 0
+        diff_amp = cp.sqrt(processed_images)
+        
+        op_output.emit(diff_amp, "diff_amp")
 
-class PositionPreprocessOp(Operator):
+class PointPreprocessorOp(Operator):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.logger = logging.getLogger("PositionPreprocessOp")
+        self.logger = logging.getLogger("PointPreprocessorOp")
         logging.basicConfig(level=logging.INFO)
-        self.point_base = None
         
     def setup(self, spec: OperatorSpec):
-        spec.input("point")
-        spec.output("point_rel")
+        spec.input("point_batch")
+        spec.output("processed_points")
         
     def compute(self, op_input, op_output, context):
-        point = op_input.receive("point")
-        
-        # if self.point_base is None:
-            # self.point_base = point
-        
-        # op_output.emit(point - self.point_base, "point_rel")
-        op_output.emit(point, "point_rel")
-        
+        points = op_input.receive("point_batch")
+        # Add any position processing here if needed in the future
+        op_output.emit(points, "processed_points")
 
-class GatherOp(Operator):
+class DataGatherOp(Operator):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.logger = logging.getLogger("GatherOp")
+        self.logger = logging.getLogger("DataGatherOp")
         logging.basicConfig(level=logging.INFO)
-        self.point_list = []
-        self.counter = 0
-        self.batchsize = 512
         
-        self.diff_d_to_add = np.zeros((self.batchsize, 256, 256))
-        self.points_to_add = np.zeros((2, self.batchsize))
-
     def setup(self, spec: OperatorSpec):
-        spec.input("image")
-        spec.input("point")
+        spec.input("diff_amp")
+        spec.input("points")
         spec.output("batch")
         
     def compute(self, op_input, op_output, context):
-        image = op_input.receive("image")
-        point = op_input.receive("point")
-        
-        self.diff_d_to_add[self.counter, :, :] = image
-        self.points_to_add[:, self.counter] = point
-        
-        if self.counter < (self.batchsize - 1):    
-            self.counter += 1
-        else:
-            out = {"images": self.diff_d_to_add,
-                   "points": self.points_to_add}
-            
-            op_output.emit(out, "batch")
-            self.counter = 0
-            # self.logger.info("Emitting data batch")
-            
+        diff_amp = op_input.receive("diff_amp")
+        points = op_input.receive("points")
+        # Here we should add filtering of images/points to deal with missing frames
+        out = {"diff_amp": diff_amp, "points": points}
+        op_output.emit(out, "batch")
 
-@create_op(inputs=Input("batch", arg_map={"images": "images", "points": "points"}))
+
+@create_op(inputs=Input("batch", arg_map={"diff_amp": "images", "points": "points"}))
 def sink_func(images, points):
     print(f"SinkOp received images: shape={images.shape}")
     print(f"SinkOp received points: shape={points.shape}")
@@ -105,26 +130,31 @@ class PreprocAppBase(EigerRxBase):
     def compose(self):
         eiger_zmq_rx, pos_rx = super().compose()
         
-        pos_proc_op = PositionPreprocessOp(self,
-                                        name="pos_proc_op")
-        preproc_op = ImagePreprocessOp(self, name="preproc_op")
-        gather = GatherOp(self, name="gather")
+        # Create operators
+        img_batch_op = ImageBatchOp(self, name="img_batch_op")
+        point_batch_op = PointBatchOp(self, name="point_batch_op")
+        img_proc_op = ImagePreprocessorOp(self, name="img_proc_op")
+        point_proc_op = PointPreprocessorOp(self, name="point_proc_op")
+        gather_op = DataGatherOp(self, name="gather_op")
         
-        self.add_flow(eiger_zmq_rx, preproc_op, {("image", "image")})
-        self.add_flow(preproc_op, gather, {("diff_amp", "image")})
-
-        self.add_flow(pos_rx, pos_proc_op, {("point", "point")})
-        self.add_flow(pos_proc_op, gather, {("point_rel", "point")})
+        # Connect source operators to batch operators
+        self.add_flow(eiger_zmq_rx, img_batch_op, {("image", "image")})
+        self.add_flow(pos_rx, point_batch_op, {("point", "point")})
         
-        return eiger_zmq_rx, pos_rx, gather
+        # Connect batch operators to preprocessing operators
+        self.add_flow(img_batch_op, img_proc_op, {("image_batch", "image_batch")})
+        self.add_flow(point_batch_op, point_proc_op, {("point_batch", "point_batch")})
         
+        self.add_flow(img_proc_op, gather_op, {("diff_amp", "diff_amp")})
+        self.add_flow(point_proc_op, gather_op, {("processed_points", "points")})
+        
+        return eiger_zmq_rx, pos_rx, gather_op
 
 class PreprocApp(PreprocAppBase):
     def compose(self):
-        _, _, gather = super().compose()
+        _, _, gather_op = super().compose()
         sink = sink_func(self, name="sink")
-        self.add_flow(gather, sink)
-
+        self.add_flow(gather_op, sink)
 
 if __name__ == "__main__":
     eiger_ip, eiger_port, msg_format, simulate_position_data_stream, position_data_path = parse_source_args()
@@ -136,13 +166,13 @@ if __name__ == "__main__":
         simulate_position_data_stream=simulate_position_data_stream,
         position_data_path=position_data_path)
     
-    # # scheduler = EventBasedScheduler(
-    # #             app,
-    # #             worker_thread_number=16,
-    # #             stop_on_deadlock=True,
-    # #             stop_on_deadlock_timeout=500,
-    # #             name="event_based_scheduler",
-    # #         )
+    # scheduler = EventBasedScheduler(
+    #             app,
+    #             worker_thread_number=16,
+    #             stop_on_deadlock=True,
+    #             stop_on_deadlock_timeout=500,
+    #             name="event_based_scheduler",
+    #         )
     # scheduler = MultiThreadScheduler(
     #             app,
     #             worker_thread_number=8,
