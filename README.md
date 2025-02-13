@@ -97,8 +97,17 @@ python3 pipeline_ptycho.py --eiger_ip 0.0.0.0 --eiger_port 5555 -m cbor
 ```
 
 ## Profiling the pipeline with nsight systems
-Use the following command to profile the pipeline with simulated data stream:
 
+When profiling the pipeline, the Linux operating system’s perf_event_paranoid level must be 2 or less. Use the following command to check:
+```
+cat /proc/sys/kernel/perf_event_paranoid
+```
+If the output is >2, then do the following to temporarily adjust the paranoid level (note that this has to be done after each reboot):
+```
+sudo sh -c 'echo 2 >/proc/sys/kernel/perf_event_paranoid'
+```
+
+Use the following command to profile the pipeline with simulated data stream:
 ```
 nsys profile -t cuda,nvtx,osrt -o ptycho_cupy.nsys-rep -f true -d 30 python3 pipeline_ptycho.py --eiger_ip 0.0.0.0 --eiger_port 5555 -m cbor
 ```
