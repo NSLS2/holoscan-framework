@@ -40,7 +40,7 @@ docker.io/library/hxn-ptycho-holoscan    latest                   9777387459f9  
 
 After successfully building the container, we run it via
 ```
-podman run --rm --net host -it \
+podman run --rm --net host -it --privileged\
     -v ./eiger_dir:/eiger_dir \
     -v ./eiger_simulation/test_data:/test_data \
     -v ../ptycho_gui:/ptycho_gui \
@@ -78,7 +78,7 @@ pixi shell
 
 To run the full holoscan example, run:
 ```
-python3 eiger_connect_sample.py
+python3 pipeline_ptycho.py
 ```
 
 Alternatively, only the Rx part of the pipeline can be run by executing
@@ -168,7 +168,7 @@ docker exec -it d270120da233 sh
 ```
 To trigger the detector use the following command:
 ```
-python trigger_detector.py -n 10
+python trigger_detector.py -n 10000 -dt 0.001
 ```
 parameter `-n` controls how many images will be transmitted by the API. Once executed, you will see the frame sending status in the API window (if it is open in the interactive mode). The holoscan application window will show frame receiving status.
 
@@ -181,7 +181,7 @@ parameter `-n` controls how many images will be transmitted by the API. Once exe
 (under development)
 To enable vizualization using pyqtgraph, you can launch the container the following way:
 ```
-podman run --rm --net host -it \
+podman run --rm --net host -it --privileged\
     -v ./eiger_dir:/eiger_dir \
     -v ./eiger_simulation/test_data:/test_data \
     -v ../ptycho_gui:/ptycho_gui \
@@ -204,7 +204,7 @@ podman run --rm --net host -it \
 
 without viz:
 ```
-docker run --rm --net host -it --ipc=host --runtime=nvidia --gpus all \
+docker run --rm --net host -it --privileged --ipc=host --runtime=nvidia --gpus all \
     --ulimit memlock=-1 --ulimit stack=67108864 \
     -v ./hxn-holoscan/eiger_dir:/eiger_dir \
     -v ./hxn-holoscan/eiger_simulation/test_data:/test_data \
@@ -223,7 +223,7 @@ docker run --rm --net host -it --ipc=host --runtime=nvidia --gpus all \
 
 with viz:
 ```
-docker run --rm --net host -it --ipc=host --runtime=nvidia --gpus all \
+docker run --rm --net host -it --privileged --ipc=host --runtime=nvidia --gpus all \
     --ulimit memlock=-1 --ulimit stack=67108864 \
     -v ./hxn-holoscan/eiger_dir:/eiger_dir \
     -v ./hxn-holoscan/eiger_simulation/test_data:/test_data \
