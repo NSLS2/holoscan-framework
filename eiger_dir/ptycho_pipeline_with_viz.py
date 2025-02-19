@@ -31,7 +31,7 @@ class PtychoDataViz(OperatorWithQtSignal):
         spec.input("image")
         
     def compute(self, op_input, op_output, context):
-        image = cp.asnumpy(op_input.receive("image"))
+        image = cp.asnumpy(op_input.receive("image")).copy()
         if self.counter > 10:
             # bla = image.copy()
             image[207, 211] = 0
