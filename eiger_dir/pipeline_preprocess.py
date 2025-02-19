@@ -16,7 +16,7 @@ class ImageBatchOp(Operator):
         self.logger = logging.getLogger("ImageBatchOp")
         logging.basicConfig(level=logging.INFO)
         self.counter = 0
-        self.batchsize = 512
+        self.batchsize = 256
         self.images_to_add = cp.zeros((self.batchsize, 257, 257))
 
     def setup(self, spec: OperatorSpec):
@@ -39,7 +39,7 @@ class PointBatchOp(Operator):
         self.logger = logging.getLogger("PointBatchOp")
         logging.basicConfig(level=logging.INFO)
         self.counter = 0
-        self.batchsize = 512
+        self.batchsize = 256
         self.points_to_add = cp.zeros((2, self.batchsize))
 
     def setup(self, spec: OperatorSpec):
@@ -100,33 +100,78 @@ class PointPreprocessorOp(Operator):
     def compute(self, op_input, op_output, context):
         points = op_input.receive("point_batch")
         # Add any position processing here if needed in the future
-        op_output.emit(points, "processed_points")
+        processed_points = cp.asarray(points).copy()
+        op_output.emit(processed_points, "processed_points")
 
 class DataGatherOp(Operator):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, *args, 
+                 num_output_ports=1,
+                 num_batches_per_emit=2,
+                 num_batches_overlap=0,
+                 **kwargs):
         self.logger = logging.getLogger("DataGatherOp")
         logging.basicConfig(level=logging.INFO)
+        self.num_ports = num_output_ports
+        self.num_batches_per_emit = num_batches_per_emit
+        self.num_batches_overlap = num_batches_overlap
+        self.current_port = 1
+        
+        # Store for previous mini-batches
+        self.stored_diff_amps = []
+        self.stored_points = []
+        
+        super().__init__(*args, **kwargs)
         
     def setup(self, spec: OperatorSpec):
         spec.input("diff_amp")
         spec.input("points")
-        spec.output("batch")
+        for i in range(1, self.num_ports + 1):
+            spec.output(f"batch{i}")
         
     def compute(self, op_input, op_output, context):
+        # Get current 256-sized mini-batch
         diff_amp = op_input.receive("diff_amp")
         points = op_input.receive("points")
-        # Here we should add filtering of images/points to deal with missing frames
-        out = {"diff_amp": diff_amp, "points": points}
-        op_output.emit(out, "batch")
-
+        
+        # Store the current mini-batch
+        self.stored_diff_amps.append(diff_amp)
+        self.stored_points.append(points)
+        
+        # If we have enough mini-batches to emit
+        if len(self.stored_diff_amps) >= self.num_batches_per_emit:
+            # Create combined batch from stored mini-batches
+            batch = {
+                "diff_amp": cp.concatenate(self.stored_diff_amps[:self.num_batches_per_emit]),
+                "points": cp.concatenate(self.stored_points[:self.num_batches_per_emit], axis=1)
+            }
+            
+            # Emit through current port
+            op_output.emit(batch, f"batch{self.current_port}")
+            
+            # Remove oldest mini-batches, keeping overlap
+            keep_count = self.num_batches_overlap
+            self.stored_diff_amps = self.stored_diff_amps[self.num_batches_per_emit - keep_count:]
+            self.stored_points = self.stored_points[self.num_batches_per_emit - keep_count:]
+            
+            # Increment port number, wrapping back to 1 after reaching num_ports
+            self.current_port = (self.current_port % self.num_ports) + 1
 
 @create_op(inputs=Input("batch", arg_map={"diff_amp": "images", "points": "points"}))
 def sink_func(images, points):
-    print(f"SinkOp received images: shape={images.shape}")
-    print(f"SinkOp received points: shape={points.shape}")
+    # print(f"SinkOp received images: shape={images.shape}, {images[0,0,0]=}, {images[256,0,0]=}")
+    # print(f"SinkOp received points: shape={points.shape}")
+    if images.shape[0] == 256:
+        print(f"SinkOp received images: shape={images.shape}, {images[0,0,0]=}")
+        print(f"SinkOp received images: shape={points.shape}, {points[0,0]=}")
+    else:
+        print(f"SinkOp received images: shape={images.shape}, {images[0,0,0]=}, {images[256,0,0]=}")
+        print(f"SinkOp received points: shape={points.shape}, {points[0,0]=}, {points[0,256]=}")
 
 class PreprocAppBase(EigerRxBase):
+    def __init__(self, *args, num_parallel_streams=4, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.num_parallel_streams = num_parallel_streams
+    
     def compose(self):
         eiger_zmq_rx, pos_rx = super().compose()
         
@@ -135,7 +180,9 @@ class PreprocAppBase(EigerRxBase):
         point_batch_op = PointBatchOp(self, name="point_batch_op")
         img_proc_op = ImagePreprocessorOp(self, name="img_proc_op")
         point_proc_op = PointPreprocessorOp(self, name="point_proc_op")
-        gather_op = DataGatherOp(self, name="gather_op")
+        gather_op = DataGatherOp(self, 
+                                num_output_ports=self.num_parallel_streams,
+                                name="gather_op")
         
         # Connect source operators to batch operators
         self.add_flow(eiger_zmq_rx, img_batch_op, {("image", "image")})
@@ -145,16 +192,25 @@ class PreprocAppBase(EigerRxBase):
         self.add_flow(img_batch_op, img_proc_op, {("image_batch", "image_batch")})
         self.add_flow(point_batch_op, point_proc_op, {("point_batch", "point_batch")})
         
+        # Connect preprocessing operators to gather op
         self.add_flow(img_proc_op, gather_op, {("diff_amp", "diff_amp")})
         self.add_flow(point_proc_op, gather_op, {("processed_points", "points")})
+        
+        pool3 = self.make_thread_pool("pool3", 5)
+        pool3.add([img_batch_op, point_batch_op, img_proc_op, point_proc_op, gather_op], True)
         
         return eiger_zmq_rx, pos_rx, gather_op
 
 class PreprocApp(PreprocAppBase):
     def compose(self):
         _, _, gather_op = super().compose()
-        sink = sink_func(self, name="sink")
-        self.add_flow(gather_op, sink)
+        
+        # Create N sinks and connect them to corresponding gather_op ports
+        sinks = []
+        for i in range(1, self.num_parallel_streams + 1):
+            sink = sink_func(self, name=f"sink{i}")
+            sinks.append(sink)
+            self.add_flow(gather_op, sink, {(f"batch{i}", "batch")})
 
 if __name__ == "__main__":
     eiger_ip, eiger_port, msg_format, simulate_position_data_stream, position_data_path = parse_source_args()
@@ -168,11 +224,13 @@ if __name__ == "__main__":
     
     # scheduler = EventBasedScheduler(
     #             app,
-    #             worker_thread_number=16,
+    #             worker_thread_number=12,
     #             stop_on_deadlock=True,
     #             stop_on_deadlock_timeout=500,
     #             name="event_based_scheduler",
     #         )
+    # app.scheduler(scheduler)
+    
     # scheduler = MultiThreadScheduler(
     #             app,
     #             worker_thread_number=8,

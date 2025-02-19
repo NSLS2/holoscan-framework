@@ -1,4 +1,3 @@
-
 import logging
 from time import sleep
 
@@ -90,19 +89,31 @@ def sink_func(result):
 class PtychoAppBase(PreprocAppBase):
     def __init__(self, *args,
                  recon_param=None,
+                 num_parallel_streams=1,  # Match default from PreprocAppBase
                  **kwargs):
-        super().__init__(*args, **kwargs)
+        super().__init__(*args, num_parallel_streams=num_parallel_streams, **kwargs)
         self.recon_param = recon_param
     
     def compose(self):
-        eiger_zmq_rx, pos_rx, preproc_op = super().compose()
+        eiger_zmq_rx, pos_rx, gather_op = super().compose()
         
-        recon = ReconOp(self, param=self.recon_param,
-                        postprocessing_flag=False,
-                        name="recon")
+        # Create N reconstruction operators
+        recon_ops = []
+        for i in range(1, self.num_parallel_streams + 1):
+            recon = ReconOp(self, 
+                           param=self.recon_param,
+                           postprocessing_flag=False,
+                           name=f"recon{i}")
+            recon_ops.append(recon)
+            # Connect gather_op output to this recon operator
+            self.add_flow(gather_op, recon, {(f"batch{i}", "batch")})
+        
+        # Create single batch stacker for combining all results
         batch_stacker = BatchedResultStackerOp(self, name="batch_stacker")
-        self.add_flow(preproc_op, recon)
-        self.add_flow(recon, batch_stacker)
+        
+        # Connect all recon operators to the same batch stacker
+        for recon in recon_ops:
+            self.add_flow(recon, batch_stacker, {("result", "in")})
         
         return eiger_zmq_rx, pos_rx, batch_stacker
         
@@ -132,7 +143,7 @@ if __name__ == "__main__":
     
     scheduler = EventBasedScheduler(
                 app,
-                worker_thread_number=16,
+                worker_thread_number=32,
                 stop_on_deadlock=True,
                 stop_on_deadlock_timeout=500,
                 name="event_based_scheduler",
@@ -141,7 +152,7 @@ if __name__ == "__main__":
     
     # scheduler = MultiThreadScheduler(
     #             app,
-    #             worker_thread_number=8,
+    #             worker_thread_number=32,
     #             check_recession_period_ms=0.5,
     #             stop_on_deadlock=True,
     #             stop_on_deadlock_timeout=500,
