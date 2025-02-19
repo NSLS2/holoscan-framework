@@ -196,8 +196,8 @@ class PreprocAppBase(EigerRxBase):
         self.add_flow(img_proc_op, gather_op, {("diff_amp", "diff_amp")})
         self.add_flow(point_proc_op, gather_op, {("processed_points", "points")})
         
-        pool3 = self.make_thread_pool("pool3", 5)
-        pool3.add([img_batch_op, point_batch_op, img_proc_op, point_proc_op, gather_op], True)
+        # pool3 = self.make_thread_pool("pool3", 5)
+        # pool3.add([img_batch_op, point_batch_op, img_proc_op, point_proc_op, gather_op], True)
         
         return eiger_zmq_rx, pos_rx, gather_op
 

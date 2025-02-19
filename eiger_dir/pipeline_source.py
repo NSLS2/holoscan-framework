@@ -16,6 +16,7 @@ from dectris.compression import decompress
 
 from holoscan.core import Application, Operator, OperatorSpec
 from holoscan.decorator import create_op
+from holoscan.schedulers import GreedyScheduler, MultiThreadScheduler, EventBasedScheduler
 
 # from holoscan.logger import LogLevel, set_log_level
 # set_log_level(LogLevel.DEBUG)
@@ -214,12 +215,21 @@ class EigerRxBase(Application):
                               simulate_position_data_stream=self.simulate_position_data_stream,
                               name="pos_rx")
         
+        # pool1 = self.make_thread_pool("pool1", 1)
+        # pool1.add(eiger_zmq_rx, True)
+        
+        # pool2 = self.make_thread_pool("pool2", 3)
+        # pool2.add(pos_rx, True)
+        
         if self.simulate_position_data_stream:
             pos_sim_tx = PositionSimTxOp(self,
                                          position_data_path=self.position_data_path,
                                          name="pos_sim_tx")
             self.add_flow(eiger_zmq_rx, pos_sim_tx, {("count", "index")})
             self.add_flow(pos_sim_tx, pos_rx)
+            
+            # pool3 = self.make_thread_pool("pool3", 1)
+            # pool2.add(pos_sim_tx, True)
         
         return eiger_zmq_rx, pos_rx
 
@@ -290,6 +300,25 @@ if __name__ == "__main__":
         simulate_position_data_stream=simulate_position_data_stream,
         position_data_path=position_data_path,
         )
+    
+    scheduler = EventBasedScheduler(
+                app,
+                worker_thread_number=4,
+                stop_on_deadlock=True,
+                stop_on_deadlock_timeout=500,
+                name="event_based_scheduler",
+            )
+    app.scheduler(scheduler)
+    # scheduler = MultiThreadScheduler(
+    #             app,
+    #             worker_thread_number=4,
+    #             check_recession_period_ms=0.5,
+    #             stop_on_deadlock=True,
+    #             stop_on_deadlock_timeout=500,
+    #             strict_job_thread_pinning=True,
+    #             name="multithread_scheduler",
+    #         )
+    # app.scheduler(scheduler)
     
     app.run()
     
