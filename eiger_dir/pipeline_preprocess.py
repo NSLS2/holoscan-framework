@@ -17,7 +17,7 @@ class ImageBatchOp(Operator):
         logging.basicConfig(level=logging.INFO)
         self.counter = 0
         self.batchsize = 256
-        self.images_to_add = cp.zeros((self.batchsize, 257, 257))
+        self.images_to_add = np.zeros((self.batchsize, 257, 257))
 
     def setup(self, spec: OperatorSpec):
         spec.input("image")
@@ -25,12 +25,12 @@ class ImageBatchOp(Operator):
         
     def compute(self, op_input, op_output, context):
         image = op_input.receive("image")
-        self.images_to_add[self.counter, :, :] = cp.array(image)
+        self.images_to_add[self.counter, :, :] = image
         
         if self.counter < (self.batchsize - 1):
             self.counter += 1
         else:
-            op_output.emit(self.images_to_add, "image_batch")
+            op_output.emit(cp.array(self.images_to_add), "image_batch")
             self.counter = 0
 
 class PointBatchOp(Operator):
@@ -40,7 +40,7 @@ class PointBatchOp(Operator):
         logging.basicConfig(level=logging.INFO)
         self.counter = 0
         self.batchsize = 256
-        self.points_to_add = cp.zeros((2, self.batchsize))
+        self.points_to_add = np.zeros((2, self.batchsize))
 
     def setup(self, spec: OperatorSpec):
         spec.input("point")
@@ -48,12 +48,12 @@ class PointBatchOp(Operator):
         
     def compute(self, op_input, op_output, context):
         point = op_input.receive("point")
-        self.points_to_add[:, self.counter] = cp.array(point)
+        self.points_to_add[:, self.counter] = point
         
         if self.counter < (self.batchsize - 1):
             self.counter += 1
         else:
-            op_output.emit(self.points_to_add, "point_batch")
+            op_output.emit(cp.array(self.points_to_add), "point_batch")
             self.counter = 0
 
 class ImagePreprocessorOp(Operator):
@@ -105,13 +105,13 @@ class PointPreprocessorOp(Operator):
 
 class DataGatherOp(Operator):
     def __init__(self, *args, 
-                 num_output_ports=1,
+                 num_parallel_streams=1,
                  num_batches_per_emit=2,
                  num_batches_overlap=0,
                  **kwargs):
         self.logger = logging.getLogger("DataGatherOp")
         logging.basicConfig(level=logging.INFO)
-        self.num_ports = num_output_ports
+        self.num_parallel_streams = num_parallel_streams
         self.num_batches_per_emit = num_batches_per_emit
         self.num_batches_overlap = num_batches_overlap
         self.current_port = 1
@@ -125,7 +125,7 @@ class DataGatherOp(Operator):
     def setup(self, spec: OperatorSpec):
         spec.input("diff_amp")
         spec.input("points")
-        for i in range(1, self.num_ports + 1):
+        for i in range(1, self.num_parallel_streams + 1):
             spec.output(f"batch{i}")
         
     def compute(self, op_input, op_output, context):
@@ -153,8 +153,8 @@ class DataGatherOp(Operator):
             self.stored_diff_amps = self.stored_diff_amps[self.num_batches_per_emit - keep_count:]
             self.stored_points = self.stored_points[self.num_batches_per_emit - keep_count:]
             
-            # Increment port number, wrapping back to 1 after reaching num_ports
-            self.current_port = (self.current_port % self.num_ports) + 1
+            # Increment port number, wrapping back to 1 after reaching num_parallel_streams
+            self.current_port = (self.current_port % self.num_parallel_streams) + 1
 
 @create_op(inputs=Input("batch", arg_map={"diff_amp": "images", "points": "points"}))
 def sink_func(images, points):
@@ -168,7 +168,7 @@ def sink_func(images, points):
         print(f"SinkOp received points: shape={points.shape}, {points[0,0]=}, {points[0,256]=}")
 
 class PreprocAppBase(EigerRxBase):
-    def __init__(self, *args, num_parallel_streams=4, **kwargs):
+    def __init__(self, *args, num_parallel_streams=1, **kwargs):
         super().__init__(*args, **kwargs)
         self.num_parallel_streams = num_parallel_streams
     
@@ -181,7 +181,7 @@ class PreprocAppBase(EigerRxBase):
         img_proc_op = ImagePreprocessorOp(self, name="img_proc_op")
         point_proc_op = PointPreprocessorOp(self, name="point_proc_op")
         gather_op = DataGatherOp(self, 
-                                num_output_ports=self.num_parallel_streams,
+                                num_parallel_streams=self.num_parallel_streams,
                                 name="gather_op")
         
         # Connect source operators to batch operators
@@ -224,7 +224,7 @@ if __name__ == "__main__":
     
     # scheduler = EventBasedScheduler(
     #             app,
-    #             worker_thread_number=12,
+    #             worker_thread_number=16,
     #             stop_on_deadlock=True,
     #             stop_on_deadlock_timeout=500,
     #             name="event_based_scheduler",
