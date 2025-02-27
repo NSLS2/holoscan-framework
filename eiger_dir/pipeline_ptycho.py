@@ -137,28 +137,29 @@ if __name__ == "__main__":
         eiger_ip=eiger_ip,
         eiger_port=eiger_port,
         msg_format=msg_format,
+        num_parallel_streams=2,
         simulate_position_data_stream=simulate_position_data_stream,
         position_data_path=position_data_path,
         recon_param=recon_param)
     
-    scheduler = EventBasedScheduler(
-                app,
-                worker_thread_number=32,
-                stop_on_deadlock=True,
-                stop_on_deadlock_timeout=500,
-                name="event_based_scheduler",
-            )
-    app.scheduler(scheduler)
-    
-    # scheduler = MultiThreadScheduler(
+    # scheduler = EventBasedScheduler(
     #             app,
-    #             worker_thread_number=32,
-    #             check_recession_period_ms=0.5,
+    #             worker_thread_number=16,
     #             stop_on_deadlock=True,
     #             stop_on_deadlock_timeout=500,
-    #             name="multithread_scheduler",
+    #             name="event_based_scheduler",
     #         )
     # app.scheduler(scheduler)
+    
+    scheduler = MultiThreadScheduler(
+                app,
+                worker_thread_number=16,
+                check_recession_period_ms=0.001,
+                stop_on_deadlock=True,
+                stop_on_deadlock_timeout=500,
+                name="multithread_scheduler",
+            )
+    app.scheduler(scheduler)
     
     app.run()
     
