@@ -109,7 +109,7 @@ sudo sh -c 'echo 2 >/proc/sys/kernel/perf_event_paranoid'
 
 Use the following command to profile the pipeline with simulated data stream:
 ```
-nsys profile -t cuda,nvtx,osrt -o ptycho_2recons.nsys-rep -f true -d 30 python3 pipeline_ptycho.py --eiger_ip 0.0.0.0 --eiger_port 5555 -m cbor
+nsys profile -t cuda,nvtx,osrt,python-gil -o ptycho_2recons.nsys-rep -f true -d 30 python3 pipeline_ptycho.py --eiger_ip 0.0.0.0 --eiger_port 5555 -m cbor
 ```
 
 
