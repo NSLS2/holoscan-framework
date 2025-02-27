@@ -14,10 +14,10 @@ import h5py
 
 from dectris.compression import decompress
 
-from holoscan.core import Application, Operator, OperatorSpec
+from holoscan.core import Application, Operator, OperatorSpec, Tracker
 from holoscan.decorator import create_op
 from holoscan.schedulers import GreedyScheduler, MultiThreadScheduler, EventBasedScheduler
-
+# from holoscan.condition import PeriodicCondition
 # from holoscan.logger import LogLevel, set_log_level
 # set_log_level(LogLevel.DEBUG)
 
@@ -300,10 +300,17 @@ if __name__ == "__main__":
         simulate_position_data_stream=simulate_position_data_stream,
         position_data_path=position_data_path,
         )
-    
+    # scheduler = GreedyScheduler(
+    #             app,
+    #             max_duration_ms=37, # setting this to -1 will make the app run until all work is done; if positive number is given, the app will run for this amount of time (in ms)
+    #             name="greedy_scheduler",
+    #         )
+    # app.scheduler(scheduler)
+
     scheduler = EventBasedScheduler(
                 app,
-                worker_thread_number=4,
+                worker_thread_number=16,
+                # max_duration_ms=20000,
                 stop_on_deadlock=True,
                 stop_on_deadlock_timeout=500,
                 name="event_based_scheduler",
@@ -312,6 +319,7 @@ if __name__ == "__main__":
     # scheduler = MultiThreadScheduler(
     #             app,
     #             worker_thread_number=4,
+    #             max_duration_ms=20000,
     #             check_recession_period_ms=0.5,
     #             stop_on_deadlock=True,
     #             stop_on_deadlock_timeout=500,
@@ -319,8 +327,10 @@ if __name__ == "__main__":
     #             name="multithread_scheduler",
     #         )
     # app.scheduler(scheduler)
-    
     app.run()
+    # with Tracker(app, filename="logger.log", num_start_messages_to_skip=2, num_last_messages_to_discard=3) as tracker:
+    #     app.run()
+    #     tracker.print()
     
     
 
