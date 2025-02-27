@@ -30,7 +30,7 @@ class ImageBatchOp(Operator):
         if self.counter < (self.batchsize - 1):
             self.counter += 1
         else:
-            op_output.emit(cp.array(self.images_to_add), "image_batch")
+            op_output.emit(self.images_to_add, "image_batch")
             self.counter = 0
 
 class PointBatchOp(Operator):
@@ -53,7 +53,7 @@ class PointBatchOp(Operator):
         if self.counter < (self.batchsize - 1):
             self.counter += 1
         else:
-            op_output.emit(cp.array(self.points_to_add), "point_batch")
+            op_output.emit(self.points_to_add, "point_batch")
             self.counter = 0
 
 class ImagePreprocessorOp(Operator):
@@ -100,7 +100,7 @@ class PointPreprocessorOp(Operator):
     def compute(self, op_input, op_output, context):
         points = op_input.receive("point_batch")
         # Add any position processing here if needed in the future
-        processed_points = cp.asarray(points).copy()
+        processed_points = cp.asarray(points)#.copy()
         op_output.emit(processed_points, "processed_points")
 
 class DataGatherOp(Operator):
