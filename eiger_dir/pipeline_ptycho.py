@@ -137,7 +137,9 @@ if __name__ == "__main__":
         eiger_ip=eiger_ip,
         eiger_port=eiger_port,
         msg_format=msg_format,
-        num_parallel_streams=2,
+        num_parallel_streams=5,
+        num_batches_per_emit=2,
+        num_batches_overlap=0,
         simulate_position_data_stream=simulate_position_data_stream,
         position_data_path=position_data_path,
         recon_param=recon_param)

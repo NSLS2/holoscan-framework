@@ -16,21 +16,30 @@ class ImageBatchOp(Operator):
         self.logger = logging.getLogger("ImageBatchOp")
         logging.basicConfig(level=logging.INFO)
         self.counter = 0
-        self.batchsize = 256
+        self.batchsize = 250
         self.images_to_add = np.zeros((self.batchsize, 257, 257))
+        self.indices_to_add = np.zeros(self.batchsize, dtype=np.int32)
 
     def setup(self, spec: OperatorSpec):
         spec.input("image")
+        spec.input("image_index")
         spec.output("image_batch")
+        spec.output("image_indices")
         
     def compute(self, op_input, op_output, context):
         image = op_input.receive("image")
+        image_index = op_input.receive("image_index")
+        
+        # self.logger.info(f"Adding image {image_index} to batch")
         self.images_to_add[self.counter, :, :] = image
+        self.indices_to_add[self.counter] = image_index
         
         if self.counter < (self.batchsize - 1):
             self.counter += 1
         else:
-            op_output.emit(self.images_to_add, "image_batch")
+            # self.logger.info(f"Emitting image batch. {self.indices_to_add[0]=}, {self.indices_to_add[-1]=}")
+            op_output.emit(self.images_to_add.copy(), "image_batch")
+            op_output.emit(self.indices_to_add.copy(), "image_indices")
             self.counter = 0
 
 class PointBatchOp(Operator):
@@ -39,21 +48,30 @@ class PointBatchOp(Operator):
         self.logger = logging.getLogger("PointBatchOp")
         logging.basicConfig(level=logging.INFO)
         self.counter = 0
-        self.batchsize = 256
+        self.batchsize = 250
         self.points_to_add = np.zeros((2, self.batchsize))
+        self.indices_to_add = np.zeros(self.batchsize, dtype=np.int32)
 
     def setup(self, spec: OperatorSpec):
         spec.input("point")
+        spec.input("point_index")
         spec.output("point_batch")
+        spec.output("point_indices")
         
     def compute(self, op_input, op_output, context):
         point = op_input.receive("point")
+        point_index = op_input.receive("point_index")
+        
+        # self.logger.info(f"Adding point {point_index} to batch")
         self.points_to_add[:, self.counter] = point
+        self.indices_to_add[self.counter] = point_index
         
         if self.counter < (self.batchsize - 1):
             self.counter += 1
         else:
-            op_output.emit(self.points_to_add, "point_batch")
+            # self.logger.info(f"Emitting point batch. {self.indices_to_add[0]=}, {self.indices_to_add[-1]=}")
+            op_output.emit(self.points_to_add.copy(), "point_batch")
+            op_output.emit(self.indices_to_add.copy(), "point_indices")
             self.counter = 0
 
 class ImagePreprocessorOp(Operator):
@@ -67,10 +85,14 @@ class ImagePreprocessorOp(Operator):
         
     def setup(self, spec: OperatorSpec):
         spec.input("image_batch")
+        spec.input("image_indices_in")
         spec.output("diff_amp")
+        spec.output("image_indices")
         
     def compute(self, op_input, op_output, context):
         images = op_input.receive("image_batch")
+        indices = op_input.receive("image_indices_in")
+        
         processed_images = cp.asarray(images)
         
         for bd in self.badpixels.T:
@@ -85,7 +107,10 @@ class ImagePreprocessorOp(Operator):
             processed_images[processed_images<self.detmap_threshold] = 0
         diff_amp = cp.sqrt(processed_images)
         
+        # self.logger.info(f"Emitting diff_amp. First index: {indices[0]}, last index: {indices[-1]}")
+        # self.logger.info(f"Emitting diff_amp. {indices=}")
         op_output.emit(diff_amp, "diff_amp")
+        op_output.emit(cp.asarray(indices), "image_indices")
 
 class PointPreprocessorOp(Operator):
     def __init__(self, *args, **kwargs):
@@ -95,17 +120,25 @@ class PointPreprocessorOp(Operator):
         
     def setup(self, spec: OperatorSpec):
         spec.input("point_batch")
+        spec.input("point_indices_in")
         spec.output("processed_points")
+        spec.output("point_indices")
         
     def compute(self, op_input, op_output, context):
         points = op_input.receive("point_batch")
+        indices = op_input.receive("point_indices_in")
         # Add any position processing here if needed in the future
         processed_points = cp.asarray(points)#.copy()
+        
+        # self.logger.info(f"Emitting points. First index: {indices[0]}, last index: {indices[-1]}")
+        # self.logger.info(f"Emitting points. {indices=}")
+        
         op_output.emit(processed_points, "processed_points")
+        op_output.emit(cp.asarray(indices), "point_indices")
 
 class DataGatherOp(Operator):
     def __init__(self, *args, 
-                 num_parallel_streams=1,
+                 num_parallel_streams=2,
                  num_batches_per_emit=2,
                  num_batches_overlap=0,
                  **kwargs):
@@ -119,42 +152,81 @@ class DataGatherOp(Operator):
         # Store for previous mini-batches
         self.stored_diff_amps = []
         self.stored_points = []
+        self.stored_image_indices = []  # Keep this for internal tracking
         
         super().__init__(*args, **kwargs)
         
     def setup(self, spec: OperatorSpec):
         spec.input("diff_amp")
+        spec.input("image_indices")
         spec.input("points")
+        spec.input("point_indices")
         for i in range(1, self.num_parallel_streams + 1):
             spec.output(f"batch{i}")
         
     def compute(self, op_input, op_output, context):
         # Get current 256-sized mini-batch
         diff_amp = op_input.receive("diff_amp")
+        image_indices = op_input.receive("image_indices")
         points = op_input.receive("points")
+        point_indices = op_input.receive("point_indices")
         
-        # Store the current mini-batch
-        self.stored_diff_amps.append(diff_amp)
-        self.stored_points.append(points)
+        # Check if indices match exactly
+        indices_match = cp.array_equal(image_indices, point_indices)
+        if not indices_match:
+            # Find differences for detailed logging
+            only_in_image = cp.setdiff1d(image_indices, point_indices)
+            only_in_point = cp.setdiff1d(point_indices, image_indices)
+            self.logger.warning(f"Indices mismatch detected! "
+                               f"Image indices shape: {image_indices.shape}, "
+                               f"Point indices shape: {point_indices.shape}, "
+                               f"Indices only in image ({only_in_image.shape}): {only_in_image}, "
+                               f"Indices only in point ({only_in_point.shape}): {only_in_point}")
         
-        # If we have enough mini-batches to emit
-        if len(self.stored_diff_amps) >= self.num_batches_per_emit:
-            # Create combined batch from stored mini-batches
-            batch = {
-                "diff_amp": cp.concatenate(self.stored_diff_amps[:self.num_batches_per_emit]),
-                "points": cp.concatenate(self.stored_points[:self.num_batches_per_emit], axis=1)
-            }
+        # Ensure indices match by finding common indices
+        common_indices = cp.intersect1d(image_indices, point_indices)
+        
+        if len(common_indices) > 0:
+            # self.logger.info(f"Found {len(common_indices)} common indices out of "
+            #                 f"{len(image_indices)} image indices and {len(point_indices)} point indices")
             
-            # Emit through current port
-            op_output.emit(batch, f"batch{self.current_port}")
+            # Create arrays to store positions in the original arrays
+            img_positions = cp.zeros(len(common_indices), dtype=cp.int32)
+            pnt_positions = cp.zeros(len(common_indices), dtype=cp.int32)
             
-            # Remove oldest mini-batches, keeping overlap
-            keep_count = self.num_batches_overlap
-            self.stored_diff_amps = self.stored_diff_amps[self.num_batches_per_emit - keep_count:]
-            self.stored_points = self.stored_points[self.num_batches_per_emit - keep_count:]
+            # Find positions of common indices in the original arrays
+            for i, idx in enumerate(common_indices):
+                img_positions[i] = cp.where(image_indices == idx)[0][0]
+                pnt_positions[i] = cp.where(point_indices == idx)[0][0]
             
-            # Increment port number, wrapping back to 1 after reaching num_parallel_streams
-            self.current_port = (self.current_port % self.num_parallel_streams) + 1
+            # Use these positions to filter the data
+            filtered_diff_amp = diff_amp[img_positions]
+            filtered_points = points[:, pnt_positions]
+            
+            # Store the filtered mini-batch
+            self.stored_diff_amps.append(filtered_diff_amp)
+            self.stored_points.append(filtered_points)
+            self.stored_image_indices.append(common_indices)  # Keep for internal tracking
+            
+            # If we have enough mini-batches to emit
+            if len(self.stored_diff_amps) >= self.num_batches_per_emit:
+                # Create combined batch from stored mini-batches - without indices
+                batch = {
+                    "diff_amp": cp.concatenate(self.stored_diff_amps[:self.num_batches_per_emit]),
+                    "points": cp.concatenate(self.stored_points[:self.num_batches_per_emit], axis=1)
+                }
+                
+                # Emit through current port
+                op_output.emit(batch, f"batch{self.current_port}")
+                
+                # Remove oldest mini-batches, keeping overlap
+                keep_count = self.num_batches_overlap
+                self.stored_diff_amps = self.stored_diff_amps[self.num_batches_per_emit - keep_count:]
+                self.stored_points = self.stored_points[self.num_batches_per_emit - keep_count:]
+                self.stored_image_indices = self.stored_image_indices[self.num_batches_per_emit - keep_count:]
+                
+                # Increment port number, wrapping back to 1 after reaching num_parallel_streams
+                self.current_port = (self.current_port % self.num_parallel_streams) + 1
 
 @create_op(inputs=Input("batch", arg_map={"diff_amp": "images", "points": "points"}))
 def sink_func(images, points):
@@ -168,9 +240,15 @@ def sink_func(images, points):
         print(f"SinkOp received points: shape={points.shape}, {points[0,0]=}, {points[0,256]=}")
 
 class PreprocAppBase(EigerRxBase):
-    def __init__(self, *args, num_parallel_streams=1, **kwargs):
+    def __init__(self, *args,
+                 num_parallel_streams=1,
+                 num_batches_per_emit=2,
+                 num_batches_overlap=0,
+                 **kwargs):
         super().__init__(*args, **kwargs)
         self.num_parallel_streams = num_parallel_streams
+        self.num_batches_per_emit = num_batches_per_emit
+        self.num_batches_overlap = num_batches_overlap
     
     def compose(self):
         eiger_zmq_rx, pos_rx = super().compose()
@@ -182,22 +260,21 @@ class PreprocAppBase(EigerRxBase):
         point_proc_op = PointPreprocessorOp(self, name="point_proc_op")
         gather_op = DataGatherOp(self, 
                                 num_parallel_streams=self.num_parallel_streams,
+                                num_batches_per_emit=self.num_batches_per_emit,
+                                num_batches_overlap=self.num_batches_overlap,
                                 name="gather_op")
         
         # Connect source operators to batch operators
-        self.add_flow(eiger_zmq_rx, img_batch_op, {("image", "image")})
-        self.add_flow(pos_rx, point_batch_op, {("point", "point")})
+        self.add_flow(eiger_zmq_rx, img_batch_op, {("image", "image"), ("image_index", "image_index")})
+        self.add_flow(pos_rx, point_batch_op, {("point", "point"), ("point_index", "point_index")})
         
-        # Connect batch operators to preprocessing operators
-        self.add_flow(img_batch_op, img_proc_op, {("image_batch", "image_batch")})
-        self.add_flow(point_batch_op, point_proc_op, {("point_batch", "point_batch")})
+        # Connect batch operators to preprocessing operators with updated port names
+        self.add_flow(img_batch_op, img_proc_op, {("image_batch", "image_batch"), ("image_indices", "image_indices_in")})
+        self.add_flow(point_batch_op, point_proc_op, {("point_batch", "point_batch"), ("point_indices", "point_indices_in")})
         
         # Connect preprocessing operators to gather op
-        self.add_flow(img_proc_op, gather_op, {("diff_amp", "diff_amp")})
-        self.add_flow(point_proc_op, gather_op, {("processed_points", "points")})
-        
-        # pool3 = self.make_thread_pool("pool3", 5)
-        # pool3.add([img_batch_op, point_batch_op, img_proc_op, point_proc_op, gather_op], True)
+        self.add_flow(img_proc_op, gather_op, {("diff_amp", "diff_amp"), ("image_indices", "image_indices")})
+        self.add_flow(point_proc_op, gather_op, {("processed_points", "points"), ("point_indices", "point_indices")})
         
         return eiger_zmq_rx, pos_rx, gather_op
 
@@ -231,15 +308,15 @@ if __name__ == "__main__":
     #         )
     # app.scheduler(scheduler)
     
-    # scheduler = MultiThreadScheduler(
-    #             app,
-    #             worker_thread_number=8,
-    #             check_recession_period_ms=0.5,
-    #             stop_on_deadlock=True,
-    #             stop_on_deadlock_timeout=500,
-    #             name="multithread_scheduler",
-    #         )
-    # app.scheduler(scheduler)
+    scheduler = MultiThreadScheduler(
+                app,
+                worker_thread_number=8,
+                check_recession_period_ms=0.001,
+                stop_on_deadlock=True,
+                stop_on_deadlock_timeout=500,
+                name="multithread_scheduler",
+            )
+    app.scheduler(scheduler)
     
     app.run()
     

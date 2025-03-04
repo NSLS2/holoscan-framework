@@ -89,7 +89,7 @@ class EigerZmqRxOp(Operator):
         
         self.endpoint = f"tcp://{eiger_ip}:{eiger_port}"
         self.msg_format = msg_format
-        self.count = 0
+        self.index = 0
         self.simulate_position_data_stream = simulate_position_data_stream
         context = zmq.Context()
         self.socket = context.socket(zmq.PULL)
@@ -105,9 +105,7 @@ class EigerZmqRxOp(Operator):
 
     def setup(self, spec: OperatorSpec):
         spec.output("image")
-        if self.simulate_position_data_stream:
-            spec.output("count")
-
+        spec.output("image_index")
 
     def compute(self, op_input, op_output, context):
         while True:
@@ -119,14 +117,12 @@ class EigerZmqRxOp(Operator):
                     msg_type, image_data = decode_cbor_message(msg)
 
                 if msg_type == "image":
-                    self.count += 1
-                    # self.logger.info(f"Successfully processed {self.count} frames")
+                    # self.logger.info(f"Emitting image with index={self.index}")
                     op_output.emit(image_data, "image")
-                    if self.simulate_position_data_stream:
-                        pass
-                        op_output.emit(self.count, "count") # emit count to trigger the position transmitter to emit corresponding point
+                    op_output.emit(self.index, "image_index")
+                    self.index += 1
                 else: # probably should have a better handling of start/end messages
-                    pass
+                    self.index = 0
 
             except Exception as ex:
                 result = "ERROR: Failed to process message: {ex}"
@@ -146,20 +142,22 @@ class PositionSimTxOp(Operator):
         logging.basicConfig(level=logging.INFO)
         with h5py.File(position_data_path) as f:
             self.points = f["points"][()].T
-            self.N = self.points.shape[0]
-            self.index = 0
+            # self.N = self.points.shape[0]
+            # self.index = 0
 
     def setup(self, spec: OperatorSpec):
-        spec.input("index")
+        spec.input("image_index")
         spec.output("point")
+        spec.output("point_index")
 
     def compute(self, op_input, op_output, context):
-        op_input.receive("index")
-        if self.index < self.N:
+        index = op_input.receive("image_index")
+        # if self.index < self.N:
             # self.logger.info(f"Emitting {self.index} point coordinate")
-            point = self.points[self.index, :]
-            op_output.emit(point, "point")
-            self.index += 1
+        point = self.points[index, :]
+        op_output.emit(point, "point")
+        op_output.emit(index, "point_index")
+        # self.index += 1
 
 class PositionRxOp(Operator):
     def __init__(self, *args,
@@ -174,20 +172,24 @@ class PositionRxOp(Operator):
     def setup(self, spec: OperatorSpec):
         if self.simulate_position_data_stream:
             spec.input("point_input")
+            spec.input("index_input")
         spec.output("point")
-
+        spec.output("point_index")
+        
     def compute(self, op_input, op_output, context):
         if self.simulate_position_data_stream:
             data = np.asarray(op_input.receive("point_input"))
+            index = op_input.receive("index_input")
         else:
             data = np.array([0, 0]) # placeholder - this should be changed to something that will actually receive the data
-        # self.logger.info(f"Emitting point data {data}")
+        # self.logger.info(f"Emitting point data {data}, {index=}")
         op_output.emit(data, "point")
+        op_output.emit(index, "point_index")
 
-@create_op(inputs=("image", "point"))
-def sink_func(image, point):
-    print(f"SinkOp received image: shape={image.shape}, total_counts={np.sum(image)}")
-    print(f"SinkOp received point coordinates: {point=}")
+@create_op(inputs=("image", "point", "image_index", "point_index"))
+def sink_func(image, point, image_index, point_index):
+    print(f"SinkOp received image: {image.shape=}, {image_index=}")
+    print(f"SinkOp received point: {point=}, {point_index=}")
 
 class EigerRxBase(Application):
     def __init__(self, *args,
@@ -225,8 +227,8 @@ class EigerRxBase(Application):
             pos_sim_tx = PositionSimTxOp(self,
                                          position_data_path=self.position_data_path,
                                          name="pos_sim_tx")
-            self.add_flow(eiger_zmq_rx, pos_sim_tx, {("count", "index")})
-            self.add_flow(pos_sim_tx, pos_rx)
+            self.add_flow(eiger_zmq_rx, pos_sim_tx, {("image_index", "image_index")})
+            self.add_flow(pos_sim_tx, pos_rx, {("point", "point_input"), ("point_index", "index_input")})
             
             # pool3 = self.make_thread_pool("pool3", 1)
             # pool2.add(pos_sim_tx, True)
@@ -239,11 +241,8 @@ class EigerRxApp(EigerRxBase):
         eiger_zmq_rx, pos_rx = super().compose()
         sink = sink_func(self, name="sink")
         
-        self.add_flow(eiger_zmq_rx, sink, {("image", "image")})
-        self.add_flow(pos_rx, sink, {("point", "point")})
-        
-        
-
+        self.add_flow(eiger_zmq_rx, sink, {("image", "image"), ("image_index", "image_index")})
+        self.add_flow(pos_rx, sink, {("point", "point"), ("point_index", "point_index")})
 
 def parse_source_args():
     parser = ArgumentParser(description="Eiger ingest example")
@@ -307,26 +306,26 @@ if __name__ == "__main__":
     #         )
     # app.scheduler(scheduler)
 
-    scheduler = EventBasedScheduler(
-                app,
-                worker_thread_number=16,
-                # max_duration_ms=20000,
-                stop_on_deadlock=True,
-                stop_on_deadlock_timeout=500,
-                name="event_based_scheduler",
-            )
-    app.scheduler(scheduler)
-    # scheduler = MultiThreadScheduler(
+    # scheduler = EventBasedScheduler(
     #             app,
-    #             worker_thread_number=4,
-    #             max_duration_ms=20000,
-    #             check_recession_period_ms=0.5,
+    #             worker_thread_number=16,
+    #             # max_duration_ms=20000,
     #             stop_on_deadlock=True,
     #             stop_on_deadlock_timeout=500,
-    #             strict_job_thread_pinning=True,
-    #             name="multithread_scheduler",
+    #             name="event_based_scheduler",
     #         )
     # app.scheduler(scheduler)
+    scheduler = MultiThreadScheduler(
+                app,
+                worker_thread_number=4,
+                max_duration_ms=20000,
+                check_recession_period_ms=0.5,
+                stop_on_deadlock=True,
+                stop_on_deadlock_timeout=500,
+                strict_job_thread_pinning=True,
+                name="multithread_scheduler",
+            )
+    app.scheduler(scheduler)
     app.run()
     # with Tracker(app, filename="logger.log", num_start_messages_to_skip=2, num_last_messages_to_discard=3) as tracker:
     #     app.run()
