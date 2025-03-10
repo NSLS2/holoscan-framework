@@ -11,12 +11,12 @@ from holoscan.decorator import create_op, Input
 from pipeline_source import EigerRxBase, parse_source_args
 
 class ImageBatchOp(Operator):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, batchsize=250, **kwargs):
         super().__init__(*args, **kwargs)
         self.logger = logging.getLogger("ImageBatchOp")
         logging.basicConfig(level=logging.INFO)
         self.counter = 0
-        self.batchsize = 250
+        self.batchsize = batchsize
         self.images_to_add = np.zeros((self.batchsize, 257, 257))
         self.indices_to_add = np.zeros(self.batchsize, dtype=np.int32)
 
@@ -30,25 +30,23 @@ class ImageBatchOp(Operator):
         image = op_input.receive("image")
         image_index = op_input.receive("image_index")
         
-        # self.logger.info(f"Adding image {image_index} to batch")
         self.images_to_add[self.counter, :, :] = image
         self.indices_to_add[self.counter] = image_index
         
         if self.counter < (self.batchsize - 1):
             self.counter += 1
         else:
-            # self.logger.info(f"Emitting image batch. {self.indices_to_add[0]=}, {self.indices_to_add[-1]=}")
             op_output.emit(self.images_to_add.copy(), "image_batch")
             op_output.emit(self.indices_to_add.copy(), "image_indices")
             self.counter = 0
 
 class PointBatchOp(Operator):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, *args, batchsize=250, **kwargs):
+        super().__init__(*args, batchsize=batchsize, **kwargs)
         self.logger = logging.getLogger("PointBatchOp")
         logging.basicConfig(level=logging.INFO)
         self.counter = 0
-        self.batchsize = 250
+        self.batchsize = batchsize
         self.points_to_add = np.zeros((2, self.batchsize))
         self.indices_to_add = np.zeros(self.batchsize, dtype=np.int32)
 
@@ -62,14 +60,12 @@ class PointBatchOp(Operator):
         point = op_input.receive("point")
         point_index = op_input.receive("point_index")
         
-        # self.logger.info(f"Adding point {point_index} to batch")
         self.points_to_add[:, self.counter] = point
         self.indices_to_add[self.counter] = point_index
         
         if self.counter < (self.batchsize - 1):
             self.counter += 1
         else:
-            # self.logger.info(f"Emitting point batch. {self.indices_to_add[0]=}, {self.indices_to_add[-1]=}")
             op_output.emit(self.points_to_add.copy(), "point_batch")
             op_output.emit(self.indices_to_add.copy(), "point_indices")
             self.counter = 0
@@ -106,9 +102,7 @@ class ImagePreprocessorOp(Operator):
         if self.detmap_threshold > 0:
             processed_images[processed_images<self.detmap_threshold] = 0
         diff_amp = cp.sqrt(processed_images)
-        
-        # self.logger.info(f"Emitting diff_amp. First index: {indices[0]}, last index: {indices[-1]}")
-        # self.logger.info(f"Emitting diff_amp. {indices=}")
+
         op_output.emit(diff_amp, "diff_amp")
         op_output.emit(cp.asarray(indices), "image_indices")
 
@@ -129,10 +123,7 @@ class PointPreprocessorOp(Operator):
         indices = op_input.receive("point_indices_in")
         # Add any position processing here if needed in the future
         processed_points = cp.asarray(points)#.copy()
-        
-        # self.logger.info(f"Emitting points. First index: {indices[0]}, last index: {indices[-1]}")
-        # self.logger.info(f"Emitting points. {indices=}")
-        
+
         op_output.emit(processed_points, "processed_points")
         op_output.emit(cp.asarray(indices), "point_indices")
 
@@ -187,9 +178,6 @@ class DataGatherOp(Operator):
         common_indices = cp.intersect1d(image_indices, point_indices)
         
         if len(common_indices) > 0:
-            # self.logger.info(f"Found {len(common_indices)} common indices out of "
-            #                 f"{len(image_indices)} image indices and {len(point_indices)} point indices")
-            
             # Create arrays to store positions in the original arrays
             img_positions = cp.zeros(len(common_indices), dtype=cp.int32)
             pnt_positions = cp.zeros(len(common_indices), dtype=cp.int32)
@@ -230,8 +218,6 @@ class DataGatherOp(Operator):
 
 @create_op(inputs=Input("batch", arg_map={"diff_amp": "images", "points": "points"}))
 def sink_func(images, points):
-    # print(f"SinkOp received images: shape={images.shape}, {images[0,0,0]=}, {images[256,0,0]=}")
-    # print(f"SinkOp received points: shape={points.shape}")
     if images.shape[0] == 256:
         print(f"SinkOp received images: shape={images.shape}, {images[0,0,0]=}")
         print(f"SinkOp received images: shape={points.shape}, {points[0,0]=}")
@@ -258,7 +244,7 @@ class PreprocAppBase(EigerRxBase):
         point_batch_op = PointBatchOp(self, name="point_batch_op")
         img_proc_op = ImagePreprocessorOp(self, name="img_proc_op")
         point_proc_op = PointPreprocessorOp(self, name="point_proc_op")
-        gather_op = DataGatherOp(self, 
+        gather_op = DataGatherOp(self,
                                 num_parallel_streams=self.num_parallel_streams,
                                 num_batches_per_emit=self.num_batches_per_emit,
                                 num_batches_overlap=self.num_batches_overlap,

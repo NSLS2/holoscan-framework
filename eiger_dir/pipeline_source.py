@@ -17,9 +17,6 @@ from dectris.compression import decompress
 from holoscan.core import Application, Operator, OperatorSpec, Tracker
 from holoscan.decorator import create_op
 from holoscan.schedulers import GreedyScheduler, MultiThreadScheduler, EventBasedScheduler
-# from holoscan.condition import PeriodicCondition
-# from holoscan.logger import LogLevel, set_log_level
-# set_log_level(LogLevel.DEBUG)
 
 supported_encodings = {"bs32-lz4<": "bslz4", "lz4<": "lz4"}
 supported_types = {"uint32": "uint32"}
@@ -117,7 +114,6 @@ class EigerZmqRxOp(Operator):
                     msg_type, image_data = decode_cbor_message(msg)
 
                 if msg_type == "image":
-                    # self.logger.info(f"Emitting image with index={self.index}")
                     op_output.emit(image_data, "image")
                     op_output.emit(self.index, "image_index")
                     self.index += 1
@@ -152,8 +148,6 @@ class PositionSimTxOp(Operator):
 
     def compute(self, op_input, op_output, context):
         index = op_input.receive("image_index")
-        # if self.index < self.N:
-            # self.logger.info(f"Emitting {self.index} point coordinate")
         point = self.points[index, :]
         op_output.emit(point, "point")
         op_output.emit(index, "point_index")
@@ -182,7 +176,6 @@ class PositionRxOp(Operator):
             index = op_input.receive("index_input")
         else:
             data = np.array([0, 0]) # placeholder - this should be changed to something that will actually receive the data
-        # self.logger.info(f"Emitting point data {data}, {index=}")
         op_output.emit(data, "point")
         op_output.emit(index, "point_index")
 
@@ -217,22 +210,13 @@ class EigerRxBase(Application):
                               simulate_position_data_stream=self.simulate_position_data_stream,
                               name="pos_rx")
         
-        # pool1 = self.make_thread_pool("pool1", 1)
-        # pool1.add(eiger_zmq_rx, True)
-        
-        # pool2 = self.make_thread_pool("pool2", 3)
-        # pool2.add(pos_rx, True)
-        
         if self.simulate_position_data_stream:
             pos_sim_tx = PositionSimTxOp(self,
                                          position_data_path=self.position_data_path,
                                          name="pos_sim_tx")
             self.add_flow(eiger_zmq_rx, pos_sim_tx, {("image_index", "image_index")})
             self.add_flow(pos_sim_tx, pos_rx, {("point", "point_input"), ("point_index", "index_input")})
-            
-            # pool3 = self.make_thread_pool("pool3", 1)
-            # pool2.add(pos_sim_tx, True)
-        
+
         return eiger_zmq_rx, pos_rx
 
 
@@ -290,7 +274,6 @@ def parse_source_args():
 
 
 if __name__ == "__main__":
-    
     eiger_ip, eiger_port, msg_format, simulate_position_data_stream, position_data_path = parse_source_args()
     app = EigerRxApp(
         eiger_ip=eiger_ip,
