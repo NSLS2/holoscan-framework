@@ -14,7 +14,7 @@ from holoscan.schedulers import GreedyScheduler, MultiThreadScheduler, EventBase
 from holoscan.logger import LogLevel, set_log_level
 from holoscan.decorator import create_op
 
-from pipeline_source import parse_source_args
+from pipeline_source import parse_args
 from pipeline_preprocess import PreprocAppBase
 
 import nvtx
@@ -80,22 +80,18 @@ def sink_func(result):
 
 
 class PtychoAppBase(PreprocAppBase):
-    def __init__(self, *args,
-                 recon_param=None,
-                 num_parallel_streams=1,  # Match default from PreprocAppBase
-                 **kwargs):
-        super().__init__(*args, num_parallel_streams=num_parallel_streams, **kwargs)
-        self.recon_param = recon_param
-    
     def compose(self):
+        recon_param = parse_config(self.kwargs("recon_op")["ptycho_config_path"], Param())
+        recon_param.working_directory = self.kwargs("recon_op")["working_directory"]
+        
         eiger_zmq_rx, pos_rx, gather_op = super().compose()
         
+        num_parallel_streams = self.kwargs("gather_op")["num_parallel_streams"]
         # Create N reconstruction operators
         recon_ops = []
-        for i in range(1, self.num_parallel_streams + 1):
+        for i in range(1, num_parallel_streams + 1):
             recon = ReconOp(self, 
-                           param=self.recon_param,
-                           postprocessing_flag=False,
+                           param=recon_param,
                            name=f"recon{i}")
             recon_ops.append(recon)
             # Connect gather_op output to this recon operator
@@ -118,24 +114,11 @@ class PtychoApp(PtychoAppBase):
         self.add_flow(recon_result_stacker, sink)
 
 
-if __name__ == "__main__":
-    eiger_ip, eiger_port, msg_format, simulate_position_data_stream, position_data_path = parse_source_args()
-    
-    recon_param = parse_config('/eiger_dir/ptycho_config',Param())
-    recon_param.working_directory = "/eiger_dir/"
-    recon_param.gpus = [0]
-    recon_param.scan_num = 257331
+if __name__ == "__main__":# eiger_ip, eiger_port, msg_format, simulate_position_data_stream, position_data_path = parse_source_args()
+    config = parse_args()
 
-    app = PtychoApp(
-        eiger_ip=eiger_ip,
-        eiger_port=eiger_port,
-        msg_format=msg_format,
-        num_parallel_streams=1,
-        num_batches_per_emit=2,
-        num_batches_overlap=0,
-        simulate_position_data_stream=simulate_position_data_stream,
-        position_data_path=position_data_path,
-        recon_param=recon_param)
+    app = PtychoApp()
+    app.config(config)
     
     # scheduler = EventBasedScheduler(
     #             app,

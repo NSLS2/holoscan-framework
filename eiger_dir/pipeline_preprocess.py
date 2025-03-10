@@ -8,17 +8,17 @@ from holoscan.schedulers import GreedyScheduler, MultiThreadScheduler, EventBase
 from holoscan.logger import LogLevel, set_log_level
 from holoscan.decorator import create_op, Input
 
-from pipeline_source import EigerRxBase, parse_source_args
+from pipeline_source import EigerRxBase, parse_args
 
 class ImageBatchOp(Operator):
     def __init__(self, *args, batchsize=250, **kwargs):
-        super().__init__(*args, **kwargs)
         self.logger = logging.getLogger("ImageBatchOp")
         logging.basicConfig(level=logging.INFO)
         self.counter = 0
         self.batchsize = batchsize
         self.images_to_add = np.zeros((self.batchsize, 257, 257))
         self.indices_to_add = np.zeros(self.batchsize, dtype=np.int32)
+        super().__init__(*args, **kwargs)
 
     def setup(self, spec: OperatorSpec):
         spec.input("image")
@@ -42,13 +42,13 @@ class ImageBatchOp(Operator):
 
 class PointBatchOp(Operator):
     def __init__(self, *args, batchsize=250, **kwargs):
-        super().__init__(*args, batchsize=batchsize, **kwargs)
         self.logger = logging.getLogger("PointBatchOp")
         logging.basicConfig(level=logging.INFO)
         self.counter = 0
         self.batchsize = batchsize
         self.points_to_add = np.zeros((2, self.batchsize))
         self.indices_to_add = np.zeros(self.batchsize, dtype=np.int32)
+        super().__init__(*args, **kwargs)
 
     def setup(self, spec: OperatorSpec):
         spec.input("point")
@@ -71,13 +71,17 @@ class PointBatchOp(Operator):
             self.counter = 0
 
 class ImagePreprocessorOp(Operator):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, *args,
+                 roi=[[1, 257], [1,257]],
+                 detmap_threshold=0,
+                 badpixels=[[207], [211]],
+                 **kwargs):
         self.logger = logging.getLogger("ImagePreprocessorOp")
         logging.basicConfig(level=logging.INFO)
-        self.roi = np.array([[1, 257], [1,257]])
-        self.detmap_threshold = 0
-        self.badpixels = np.array([[207], [211]])
+        self.roi = np.array(roi)
+        self.detmap_threshold = detmap_threshold
+        self.badpixels = np.array(badpixels)
+        super().__init__(*args, **kwargs)
         
     def setup(self, spec: OperatorSpec):
         spec.input("image_batch")
@@ -156,7 +160,7 @@ class DataGatherOp(Operator):
             spec.output(f"batch{i}")
         
     def compute(self, op_input, op_output, context):
-        # Get current 256-sized mini-batch
+        # Get current mini-batch of batchsize
         diff_amp = op_input.receive("diff_amp")
         image_indices = op_input.receive("image_indices")
         points = op_input.receive("points")
@@ -218,37 +222,27 @@ class DataGatherOp(Operator):
 
 @create_op(inputs=Input("batch", arg_map={"diff_amp": "images", "points": "points"}))
 def sink_func(images, points):
-    if images.shape[0] == 256:
+    if images.shape[0] == 250:
         print(f"SinkOp received images: shape={images.shape}, {images[0,0,0]=}")
         print(f"SinkOp received images: shape={points.shape}, {points[0,0]=}")
     else:
-        print(f"SinkOp received images: shape={images.shape}, {images[0,0,0]=}, {images[256,0,0]=}")
-        print(f"SinkOp received points: shape={points.shape}, {points[0,0]=}, {points[0,256]=}")
+        print(f"SinkOp received images: shape={images.shape}, {images[0,0,0]=}, {images[250,0,0]=}")
+        print(f"SinkOp received points: shape={points.shape}, {points[0,0]=}, {points[0,250]=}")
 
 class PreprocAppBase(EigerRxBase):
-    def __init__(self, *args,
-                 num_parallel_streams=1,
-                 num_batches_per_emit=2,
-                 num_batches_overlap=0,
-                 **kwargs):
-        super().__init__(*args, **kwargs)
-        self.num_parallel_streams = num_parallel_streams
-        self.num_batches_per_emit = num_batches_per_emit
-        self.num_batches_overlap = num_batches_overlap
-    
+
     def compose(self):
         eiger_zmq_rx, pos_rx = super().compose()
         
         # Create operators
-        img_batch_op = ImageBatchOp(self, name="img_batch_op")
-        point_batch_op = PointBatchOp(self, name="point_batch_op")
-        img_proc_op = ImagePreprocessorOp(self, name="img_proc_op")
-        point_proc_op = PointPreprocessorOp(self, name="point_proc_op")
-        gather_op = DataGatherOp(self,
-                                num_parallel_streams=self.num_parallel_streams,
-                                num_batches_per_emit=self.num_batches_per_emit,
-                                num_batches_overlap=self.num_batches_overlap,
-                                name="gather_op")
+        batchsize = self.kwargs('img_batch_op')["batchsize"]
+        img_batch_op = ImageBatchOp(self, batchsize=batchsize, name="img_batch_op")
+        point_batch_op = PointBatchOp(self, batchsize=batchsize, name="point_batch_op")
+        
+        img_proc_op = ImagePreprocessorOp(self, **self.kwargs('img_proc_op'), name="img_proc_op")
+        point_proc_op = PointPreprocessorOp(self, **self.kwargs('point_proc_op'), name="point_proc_op")
+        print(self.kwargs('gather_op'))
+        gather_op = DataGatherOp(self, **self.kwargs('gather_op'), name="gather_op")
         
         # Connect source operators to batch operators
         self.add_flow(eiger_zmq_rx, img_batch_op, {("image", "image"), ("image_index", "image_index")})
@@ -270,20 +264,16 @@ class PreprocApp(PreprocAppBase):
         
         # Create N sinks and connect them to corresponding gather_op ports
         sinks = []
-        for i in range(1, self.num_parallel_streams + 1):
+        for i in range(1, self.kwargs('gather_op')["num_parallel_streams"] + 1):
             sink = sink_func(self, name=f"sink{i}")
             sinks.append(sink)
             self.add_flow(gather_op, sink, {(f"batch{i}", "batch")})
 
 if __name__ == "__main__":
-    eiger_ip, eiger_port, msg_format, simulate_position_data_stream, position_data_path = parse_source_args()
+    config = parse_args()
     
-    app = PreprocApp(
-        eiger_ip=eiger_ip,
-        eiger_port=eiger_port,
-        msg_format=msg_format,
-        simulate_position_data_stream=simulate_position_data_stream,
-        position_data_path=position_data_path)
+    app = PreprocApp()
+    app.config(config)
     
     # scheduler = EventBasedScheduler(
     #             app,

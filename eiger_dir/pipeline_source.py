@@ -203,36 +203,16 @@ def sink_func(image, point, image_index, point_index):
     print(f"SinkOp received point: {point=}, {point_index=}")
 
 class EigerRxBase(Application):
-    def __init__(self, *args,
-                 eiger_ip:str=None,
-                 eiger_port:str=None,
-                 msg_format:str=None,
-                 simulate_position_data_stream:bool=None,
-                 position_data_path:str=None,
-                 **kwargs):
-        super().__init__(*args, **kwargs)
-        self.eiger_ip = eiger_ip
-        self.eiger_port = eiger_port
-        self.msg_format = msg_format
-        self.simulate_position_data_stream = simulate_position_data_stream
-        self.position_data_path = position_data_path
-            
     def compose(self):
-        eiger_zmq_rx = EigerZmqRxOp(self,
-                                    eiger_ip=self.eiger_ip,
-                                    eiger_port=self.eiger_port,
-                                    msg_format=self.msg_format,
-                                    simulate_position_data_stream=self.simulate_position_data_stream,
-                                    receive_timeout_ms=1000,
-                                    name="eiger_zmq_rx")
-        pos_rx = PositionRxOp(self,
-                              simulate_position_data_stream=self.simulate_position_data_stream,
-                              name="pos_rx")
+        simulate_position_data_stream = self.kwargs('eiger_zmq_rx')['simulate_position_data_stream']
+        eiger_zmq_rx = EigerZmqRxOp(self, **self.kwargs('eiger_zmq_rx'))
         
-        if self.simulate_position_data_stream:
-            pos_sim_tx = PositionSimTxOp(self,
-                                         position_data_path=self.position_data_path,
-                                         name="pos_sim_tx")
+        pos_rx_args = self.kwargs('pos_rx')
+        pos_rx_args["simulate_position_data_stream"] = simulate_position_data_stream
+        pos_rx = PositionRxOp(self, **pos_rx_args, name="pos_rx")
+        
+        if simulate_position_data_stream:
+            pos_sim_tx = PositionSimTxOp(self, **self.kwargs('pos_sim_tx'))
             self.add_flow(eiger_zmq_rx, pos_sim_tx, {("image_index", "image_index")})
             self.add_flow(pos_sim_tx, pos_rx, {("point", "point_input"), ("point_index", "index_input")})
 
@@ -247,60 +227,28 @@ class EigerRxApp(EigerRxBase):
         self.add_flow(eiger_zmq_rx, sink, {("image", "image"), ("image_index", "image_index")})
         self.add_flow(pos_rx, sink, {("point", "point"), ("point_index", "point_index")})
 
-def parse_source_args():
+def parse_args():
     parser = ArgumentParser(description="Eiger ingest example")
     parser.add_argument(
-        "--eiger_ip",
+        "--config",
         type=str,
-        default=...,
+        default="none",
         help=(
-            "Eiger Detector IP address"
+            "Holoscan config file"
         ),
     )
-    parser.add_argument(
-        "--eiger_port",
-        type=str,
-        default="9999",
-        help=("Eiger Detector port"),
-    )
-    parser.add_argument(
-        "-m",
-        "--message_format",
-        type=str,
-        choices=["json", "cbor"],
-        default="json",
-        help=("Eiger message format"),
-    )
-    parser.add_argument(
-        "-p",
-        "--position_data_source",
-        type=str,
-        default="scan_257331.h5",
-        help=("Position data source"),
-    )
-
     args = parser.parse_args()
-    eiger_ip = args.eiger_ip
-    eiger_port = args.eiger_port
-    msg_format = args.message_format
-    if args.position_data_source == "stream":
-        simulate_position_data_stream = False
-        position_data_path = None
-    elif args.position_data_source.endswith(".h5"):
-        simulate_position_data_stream = True
-        position_data_path = f"/test_data/{args.position_data_source}"
-    return eiger_ip, eiger_port, msg_format, simulate_position_data_stream, position_data_path
-
-
+    config = args.config
+    if config == "none":
+        config = "holoscan_config.yaml"
+    return config
+        
 if __name__ == "__main__":
-    eiger_ip, eiger_port, msg_format, simulate_position_data_stream, position_data_path = parse_source_args()
-    app = EigerRxApp(
-        eiger_ip=eiger_ip,
-        eiger_port=eiger_port,
-        msg_format=msg_format,
-        simulate_position_data_stream=simulate_position_data_stream,
-        position_data_path=position_data_path,
-        )
+    config = parse_args()
+
+    app = EigerRxApp()
+    app.config(config)
+
     # scheduler = GreedyScheduler(
     #             app,
     #             max_duration_ms=37, # setting this to -1 will make the app run until all work is done; if positive number is given, the app will run for this amount of time (in ms)
@@ -320,7 +268,7 @@ if __name__ == "__main__":
     scheduler = MultiThreadScheduler(
                 app,
                 worker_thread_number=4,
-                max_duration_ms=5000,
+                # max_duration_ms=5000,
                 check_recession_period_ms=0.001,
                 stop_on_deadlock=True,
                 stop_on_deadlock_timeout=500,
@@ -329,6 +277,7 @@ if __name__ == "__main__":
             )
     app.scheduler(scheduler)
     app.run()
+    
     # with Tracker(app, filename="logger.log", num_start_messages_to_skip=2, num_last_messages_to_discard=3) as tracker:
     #     app.run()
     #     tracker.print()

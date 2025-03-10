@@ -1,0 +1,33 @@
+%YAML 1.2
+
+
+eiger_zmq_rx:
+  eiger_ip: "0.0.0.0"
+  eiger_port: "5555"
+  msg_format: "cbor"
+  simulate_position_data_stream: true
+  receive_timeout_ms: 1000
+
+pos_sim_tx:
+  position_data_path: "/test_data/scan_257331.h5"
+
+pos_rx: null
+
+img_batch_op:
+  batchsize: 250
+
+img_proc_op:
+  roi: [[1, 257], [1,257]]
+  detmap_threshold: 0
+  badpixels: [[207], [211]]
+
+point_proc_op: null
+
+gather_op:
+  num_parallel_streams: 1
+  num_batches_per_emit: 2
+  num_batches_overlap: 0
+
+recon_op:
+  ptycho_config_path: "./ptycho_config"
+  working_directory: "/eiger_dir/"
