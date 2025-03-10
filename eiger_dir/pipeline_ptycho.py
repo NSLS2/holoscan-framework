@@ -57,7 +57,7 @@ class ReconResultOp(Operator):
         self.logger = logging.getLogger("ReconResultOp")
         logging.basicConfig(level=logging.INFO)
         self.batched_result = None
-        self.counter = 0
+        # self.counter = 0
         
     def setup(self, spec: OperatorSpec):
         spec.input("in")
@@ -68,16 +68,17 @@ class ReconResultOp(Operator):
         if self.batched_result is None:
             self.batched_result = obj.copy()
         else:
-            self.batched_result = np.nansum(
+            # this implies that at most two batches overlap
+            self.batched_result = np.nanmean(
                 np.array([self.batched_result, obj.copy()]), axis=0)
-        self.counter += 1
+        # self.counter += 1
         # self.batched_result.append(obj)
         # bla = np.array(self.batched_result)
         # out = np.nanmean(bla, axis=0)
         
-        average = self.batched_result / self.counter
-        average = np.nan_to_num(average, nan=0.0)
-        op_output.emit(average, "out")
+        # average = self.batched_result / self.counter
+        out = np.nan_to_num(self.batched_result, nan=0.0)
+        op_output.emit(out, "out")
 
 
 @create_op(inputs="result")
