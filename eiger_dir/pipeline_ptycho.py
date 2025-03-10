@@ -56,7 +56,8 @@ class ReconResultOp(Operator):
         super().__init__(*args, **kwargs)
         self.logger = logging.getLogger("ReconResultOp")
         logging.basicConfig(level=logging.INFO)
-        self.batched_result = []
+        self.batched_result = None
+        self.counter = 0
         
     def setup(self, spec: OperatorSpec):
         spec.input("in")
@@ -64,16 +65,24 @@ class ReconResultOp(Operator):
         
     def compute(self, op_input, op_output, context):
         obj = op_input.receive("in")
-        self.batched_result.append(obj)
-        bla = np.array(self.batched_result)
-        out = np.nanmean(bla, axis=0)
-        out = np.nan_to_num(out, nan=0.0)
-        op_output.emit(out, "out")
+        if self.batched_result is None:
+            self.batched_result = obj.copy()
+        else:
+            self.batched_result = np.nansum(
+                np.array([self.batched_result, obj.copy()]), axis=0)
+        self.counter += 1
+        # self.batched_result.append(obj)
+        # bla = np.array(self.batched_result)
+        # out = np.nanmean(bla, axis=0)
+        
+        average = self.batched_result / self.counter
+        average = np.nan_to_num(average, nan=0.0)
+        op_output.emit(average, "out")
 
 
 @create_op(inputs="result")
 def sink_func(result):
-    print(f"SinkOp received the result from reconstruction {result=}")
+    print(f"SinkOp received the result from reconstruction {np.sum(result>0)=}")
 
 
 class PtychoAppBase(PreprocAppBase):
@@ -127,7 +136,7 @@ if __name__ == "__main__":
         eiger_ip=eiger_ip,
         eiger_port=eiger_port,
         msg_format=msg_format,
-        num_parallel_streams=5,
+        num_parallel_streams=1,
         num_batches_per_emit=2,
         num_batches_overlap=0,
         simulate_position_data_stream=simulate_position_data_stream,
