@@ -91,9 +91,9 @@ To run Rx and the preprocessor operators, execute
 python3 pipeline_preprocess.py
 ```
 
-Additional parameters can be passed to the holoscan script to streamline testing and deployment in different environments. For instance, to run the holoscan pipeline with a simulated stream (see below), one needs to change the default settings for eiger ip address and port. In addition, depending on the Simplon API version, the zmq messages can be encoded differently (json vs cbor) and message format can be passed as well:
+To test the holoscan pipeline in different environments, one can modify the `holoscan_config.yaml` file, or create another one, e.g. `holoscan_test_config.yaml`. A new config then must be passed to the script as an argument:
 ```
-python3 pipeline_ptycho.py --eiger_ip 0.0.0.0 --eiger_port 5555 -m cbor
+python3 pipeline_ptycho.py --config holoscan_test_config.yaml
 ```
 
 ## Profiling the pipeline with nsight systems
@@ -107,9 +107,9 @@ If the output is >2, then do the following to temporarily adjust the paranoid le
 sudo sh -c 'echo 2 >/proc/sys/kernel/perf_event_paranoid'
 ```
 
-Use the following command to profile the pipeline with simulated data stream:
+Use the following command to profile the pipeline with simulated data stream (add `--config holoscan_test_config.yaml` at the end if neccessary):
 ```
-nsys profile -t cuda,nvtx,osrt,python-gil -o ptycho_2recons.nsys-rep -f true -d 30 python3 pipeline_ptycho.py --eiger_ip 0.0.0.0 --eiger_port 5555 -m cbor
+nsys profile -t cuda,nvtx,osrt,python-gil -o ptycho_profile.nsys-rep -f true -d 30 python3 pipeline_ptycho.py
 ```
 
 
