@@ -82,14 +82,19 @@ class EigerZmqRxOp(Operator):
                  eiger_port:str=None,
                  msg_format:str=None,
                  simulate_position_data_stream:bool=False,
+                 receive_timeout_ms:int=1000,  # 1 second timeout
                  **kwargs):
         
         self.endpoint = f"tcp://{eiger_ip}:{eiger_port}"
         self.msg_format = msg_format
         self.index = 0
         self.simulate_position_data_stream = simulate_position_data_stream
+        self.receive_timeout_ms = receive_timeout_ms
         context = zmq.Context()
+        
         self.socket = context.socket(zmq.PULL)
+        # Set receive timeout
+        self.socket.setsockopt(zmq.RCVTIMEO, receive_timeout_ms)
 
         try:
             self.socket.connect(self.endpoint)
@@ -105,8 +110,12 @@ class EigerZmqRxOp(Operator):
         spec.output("image_index")
 
     def compute(self, op_input, op_output, context):
-        while True:
+        # self.logger.info("Waiting for message")
+        try:
+            # Try to receive with timeout
             msg = self.socket.recv()
+            # self.logger.info(f"Received message: {msg}")
+            
             try:
                 if self.msg_format == "json":
                     msg_type, image_data = decode_json_message(msg)
@@ -124,8 +133,17 @@ class EigerZmqRxOp(Operator):
                 result = "ERROR: Failed to process message: {ex}"
                 print(f"{pprint.pformat(result)}")
                 print(traceback.format_exc())
-
-            return
+                
+        except zmq.error.Again:
+            # Timeout occurred
+            self.logger.debug("No message received within timeout period")
+        except Exception as e:
+            self.logger.error(f"Error receiving message: {e}")
+            
+    def __del__(self):
+        """Cleanup socket on deletion"""
+        if hasattr(self, 'socket'):
+            self.socket.close()
 
 
 class PositionSimTxOp(Operator):
@@ -205,6 +223,7 @@ class EigerRxBase(Application):
                                     eiger_port=self.eiger_port,
                                     msg_format=self.msg_format,
                                     simulate_position_data_stream=self.simulate_position_data_stream,
+                                    receive_timeout_ms=1000,
                                     name="eiger_zmq_rx")
         pos_rx = PositionRxOp(self,
                               simulate_position_data_stream=self.simulate_position_data_stream,
@@ -292,7 +311,7 @@ if __name__ == "__main__":
     # scheduler = EventBasedScheduler(
     #             app,
     #             worker_thread_number=16,
-    #             # max_duration_ms=20000,
+    #             max_duration_ms=5000,
     #             stop_on_deadlock=True,
     #             stop_on_deadlock_timeout=500,
     #             name="event_based_scheduler",
@@ -301,8 +320,8 @@ if __name__ == "__main__":
     scheduler = MultiThreadScheduler(
                 app,
                 worker_thread_number=4,
-                max_duration_ms=20000,
-                check_recession_period_ms=0.5,
+                max_duration_ms=5000,
+                check_recession_period_ms=0.001,
                 stop_on_deadlock=True,
                 stop_on_deadlock_timeout=500,
                 strict_job_thread_pinning=True,
