@@ -173,13 +173,30 @@ class PositionSimTxOp(Operator):
 
 class PositionRxOp(Operator):
     def __init__(self, *args,
-                 simulate_position_data_stream:bool=None,
-                 **kwargs):
+                pandabox_ip:str=None,
+                pandabox_port:str=None,
+                receive_timeout_ms:int=1000,
+                data_index_str:str=None,
+                data_x_str:str=None,
+                data_y_str:str=None,
+                simulate_position_data_stream:bool=None,
+                **kwargs):
         self.simulate_position_data_stream = simulate_position_data_stream
         super().__init__(*args, **kwargs)
         self.logger = logging.getLogger("PositionRxOp")
         logging.basicConfig(level=logging.INFO)
-        # some logic that goes into setting up the position data receiver (ZMQ, UDP, etc)
+        self.data_index_str = data_index_str
+        self.data_x_str = data_x_str
+        self.data_y_str = data_y_str
+
+        if not self.simulate_position_data_stream:
+            self.endpoint = f"tcp://{pandabox_ip}:{pandabox_port}"
+            context = zmq.Context()
+            self.socket = context.socket(zmq.SUB)
+            self.socket.connect(self.endpoint)
+            self.socket.setsockopt_string(zmq.SUBSCRIBE, "")
+            # Set receive timeout
+            self.socket.setsockopt(zmq.RCVTIMEO, receive_timeout_ms)
 
     def setup(self, spec: OperatorSpec):
         if self.simulate_position_data_stream:
@@ -193,7 +210,26 @@ class PositionRxOp(Operator):
             data = np.asarray(op_input.receive("point_input"))
             index = op_input.receive("index_input")
         else:
-            data = np.array([0, 0]) # placeholder - this should be changed to something that will actually receive the data
+            msg = self.socket.recv_json()
+            if msg["msg_type"] == "data":
+                index = msg["datasets"][self.data_index_str]["data"]
+                x = msg["datasets"][self.data_x_str]["data"]
+                y = msg["datasets"][self.data_y_str]["data"]
+                for index, x, y in zip(index, x, y):
+                    op_output.emit(np.array([x, y]), "point")
+                    op_output.emit(index, "point_index")
+                    
+# example of msg:
+# {'msg_type': 'start', 'arm_time': '2025-02-28T18:44:22.905865051Z', 'start_time': '2025-02-28T18:44:22.905908989Z', 'hw_time_offset_ns': None}
+# {'msg_type': 'data', 'frame_number': 0, 'datasets':
+# {'/COUNTER1.OUT.Value': {'dtype': 'float64', 'size': 41, 'starting_sample_number': 0, 'data': [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0, 20.0, 21.0, 22.0, 23.0, 24.0, 25.0, 26.0, 27.0, 28.0, 29.0, 30.0, 31.0, 32.0, 33.0, 34.0, 35.0, 36.0, 37.0, 38.0, 39.0, 40.0, 41.0]},
+# '/FMC_IN.VAL1.Value': {'dtype': 'float64', 'size': 41, 'starting_sample_number': 0, 'data': [-0.00831604003356672, -0.007934570307256321, -0.00816345214304256, -0.007934570307256321, -0.00823974608830464, -0.00831604003356672, -0.00823974608830464, -0.00816345214304256, -0.008392333978828801, -0.00854492186935296, -0.00854492186935296, -0.00823974608830464, -0.00823974608830464, -0.00823974608830464, -0.008392333978828801, -0.008392333978828801, -0.00816345214304256, -0.00831604003356672, -0.00831604003356672, -0.00831604003356672, -0.008392333978828801, -0.00823974608830464, -0.00854492186935296, -0.00808715819778048, -0.00816345214304256, -0.008392333978828801, -0.00862121581461504, -0.007934570307256321, -0.008392333978828801, -0.00823974608830464, -0.00831604003356672, -0.00831604003356672, -0.00831604003356672, -0.008468627924090881, -0.00831604003356672, -0.0080108642525184, -0.00808715819778048, -0.008468627924090881, -0.008468627924090881, -0.00808715819778048, -0.007858276361994241]},
+# '/PCAP.TS_TRIG.Value': {'dtype': 'float64', 'size': 41, 'starting_sample_number': 0, 'data': [2.4000000000000003e-08, 0.010000024000000001, 0.020000024, 0.030000024, 0.040000024, 0.050000024000000004, 0.060000024000000006, 0.07000002400000001, 0.080000024, 0.09000002400000001, 0.100000024, 0.110000024, 0.12000002400000001, 0.13000002400000002, 0.140000024, 0.150000024, 0.16000002400000002, 0.170000024, 0.180000024, 0.19000002400000002, 0.20000002400000003, 0.210000024, 0.22000002400000002, 0.23000002400000003, 0.240000024, 0.25000002400000004, 0.260000024, 0.270000024, 0.280000024, 0.290000024, 0.30000002400000003, 0.31000002400000004, 0.320000024, 0.330000024, 0.340000024, 0.350000024, 0.36000002400000003, 0.37000002400000004, 0.38000002400000005, 0.390000024, 0.400000024]}}}
+# ...
+# {'msg_type': 'stop', 'emitted_frames': 4}
+
+
+            # data = np.array([0, 0]) # placeholder - this should be changed to something that will actually receive the data
         op_output.emit(data, "point")
         op_output.emit(index, "point_index")
 

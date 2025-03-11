@@ -11,7 +11,13 @@ eiger_zmq_rx:
 pos_sim_tx:
   position_data_path: "/test_data/scan_257331.h5"
 
-pos_rx: null
+pos_rx:
+  pandabox_ip: "0.0.0.0" # placeholder
+  pandabox_port: "5555" # placeholder
+  receive_timeout_ms: 1000
+  data_index_str: "/COUNTER1.OUT.Value" # placeholder
+  data_x_str: "/FMC_IN.VAL1.Value" # placeholder
+  data_y_str: "/FMC_IN.VAL1.Value" # placeholder
 
 img_batch_op:
   batchsize: 250
