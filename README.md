@@ -40,7 +40,7 @@ docker.io/library/hxn-ptycho-holoscan    latest                   9777387459f9  
 
 After successfully building the container, we run it via
 ```
-podman run --rm --net host -it \
+podman run --rm --net host -it --privileged\
     -v ./eiger_dir:/eiger_dir \
     -v ./eiger_simulation/test_data:/test_data \
     -v ../ptycho_gui:/ptycho_gui \
@@ -50,8 +50,12 @@ podman run --rm --net host -it \
     -e OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1 \
     -e OMPI_COMM_WORLD_LOCAL_RANK=0 \
     -e OMPI_COMM_WORLD_LOCAL_SIZE=1 \
+    -e HOLOSCAN_ENABLE_PROFILE=1 \
     --device nvidia.com/gpu=all hxn-ptycho-holoscan
 ```
+
+
+
 Note that the directories for `ptycho_gui` and `ptycho` are mounted inside the container.
 
 Since it is easier to manage virtual environment, packaging and version control via `pixi`, we use the following `pixi.toml` to generate a virtual conda environment inside a directory named `eiger_holoscan` we mounted while starting the container
@@ -72,33 +76,43 @@ To enable the pixi environment run
 pixi shell
 ```
 
-To run the holoscan example,  `python3 eiger_connect_sample.py`.
-Additional parameters can be passed to the holoscan script to streamline testing and deployment in different environments. For instance, to run the holoscan pipeline with a simulated stream (see below), one needs to change the default settings for eiger ip address and port. In addition, depending on the Simplon API version, the zmq messages can be encoded differently (json vs cbor) and message format can be passed as well:
+To run the full holoscan example, run:
 ```
-python3 eiger_connect_sample.py --eiger_ip 0.0.0.0 --eiger_port 5555 -m cbor
+python3 pipeline_ptycho.py
 ```
 
-## Holoscan App Container with vizualization
-(under development)
-To enable vizualization using pyqtgraph, you can launch the container the following way:
+Alternatively, only the Rx part of the pipeline can be run by executing
 ```
-podman run --rm --net host -it \
-    -v ./eiger_dir:/eiger_dir \
-    -v ./eiger_simulation/test_data:/test_data \
-    -v ../ptycho_gui:/ptycho_gui \
-    -v ../ptycho:/ptycho_gui/nsls2ptycho/core/ptycho \
-    -w /eiger_dir \
-    -e OMPI_ALLOW_RUN_AS_ROOT=1 \
-    -e OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1 \
-    -e OMPI_COMM_WORLD_LOCAL_RANK=0 \
-    -e OMPI_COMM_WORLD_LOCAL_SIZE=1 \
-    -e QT_QPA_PLATFORM=xcb \
-    -e QT_DEBUG_PLUGINS=0 \
-    -e DISPLAY=$DISPLAY \
-    -v /tmp/.X11-unix:/tmp/.X11-unix\
-    --device nvidia.com/gpu=all hxn-ptycho-holoscan
+python3 pipeline_source.py
 ```
-Proceed with installing pixi environment as described above.
+
+To run Rx and the preprocessor operators, execute
+```
+python3 pipeline_preprocess.py
+```
+
+To test the holoscan pipeline in different environments, one can modify the `holoscan_config.yaml` file, or create another one, e.g. `holoscan_test_config.yaml`. A new config then must be passed to the script as an argument:
+```
+python3 pipeline_ptycho.py --config holoscan_test_config.yaml
+```
+
+## Profiling the pipeline with nsight systems
+
+When profiling the pipeline, the Linux operating system’s perf_event_paranoid level must be 2 or less. Use the following command to check:
+```
+cat /proc/sys/kernel/perf_event_paranoid
+```
+If the output is >2, then do the following to temporarily adjust the paranoid level (note that this has to be done after each reboot):
+```
+sudo sh -c 'echo 2 >/proc/sys/kernel/perf_event_paranoid'
+```
+
+Use the following command to profile the pipeline with simulated data stream (add `--config holoscan_test_config.yaml` at the end if neccessary):
+```
+nsys profile -t cuda,nvtx,osrt,python-gil -o ptycho_profile.nsys-rep -f true -d 30 python3 pipeline_ptycho.py
+```
+
+
 
 ## Simulating data stream using test data from HXN
 To test/develop the holoscan pipeline, we can run a simulated data stream.
@@ -163,9 +177,78 @@ docker exec -it d270120da233 sh
 ```
 To trigger the detector use the following command:
 ```
-python trigger_detector.py -n 10
+python trigger_detector.py -n 10000 -dt 0.001
 ```
 parameter `-n` controls how many images will be transmitted by the API. Once executed, you will see the frame sending status in the API window (if it is open in the interactive mode). The holoscan application window will show frame receiving status.
 
 
 
+
+
+
+## Holoscan App Container with vizualization (optional)
+(under development)
+To enable vizualization using pyqtgraph, you can launch the container the following way:
+```
+podman run --rm --net host -it --privileged\
+    -v ./eiger_dir:/eiger_dir \
+    -v ./eiger_simulation/test_data:/test_data \
+    -v ../ptycho_gui:/ptycho_gui \
+    -v ../ptycho:/ptycho_gui/nsls2ptycho/core/ptycho \
+    -w /eiger_dir \
+    -e OMPI_ALLOW_RUN_AS_ROOT=1 \
+    -e OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1 \
+    -e OMPI_COMM_WORLD_LOCAL_RANK=0 \
+    -e OMPI_COMM_WORLD_LOCAL_SIZE=1 \
+    -e HOLOSCAN_ENABLE_PROFILE=1 \
+    -e QT_QPA_PLATFORM=xcb \
+    -e QT_DEBUG_PLUGINS=0 \
+    -e DISPLAY=$DISPLAY \
+    -v /tmp/.X11-unix:/tmp/.X11-unix\
+    --device nvidia.com/gpu=all hxn-ptycho-holoscan
+```
+
+
+## Docker instructions (optional)
+
+without viz:
+```
+docker run --rm --net host -it --privileged --ipc=host --runtime=nvidia --gpus all \
+    --ulimit memlock=-1 --ulimit stack=67108864 \
+    -v ./hxn-holoscan/eiger_dir:/eiger_dir \
+    -v ./hxn-holoscan/eiger_simulation/test_data:/test_data \
+    -v ./ptycho_gui:/ptycho_gui \
+    -v ./ptycho:/ptycho_gui/nsls2ptycho/core/ptycho \
+    -w /eiger_dir \
+    -e OMPI_ALLOW_RUN_AS_ROOT=1 \
+    -e OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1 \
+    -e OMPI_COMM_WORLD_LOCAL_RANK=0 \
+    -e OMPI_COMM_WORLD_LOCAL_SIZE=1 \
+    -e HOLOSCAN_ENABLE_PROFILE=1 \
+    hxn-ptycho-holoscan
+```
+
+
+
+with viz:
+```
+docker run --rm --net host -it --privileged --ipc=host --runtime=nvidia --gpus all \
+    --ulimit memlock=-1 --ulimit stack=67108864 \
+    -v ./hxn-holoscan/eiger_dir:/eiger_dir \
+    -v ./hxn-holoscan/eiger_simulation/test_data:/test_data \
+    -v ./ptycho_gui:/ptycho_gui \
+    -v ./ptycho:/ptycho_gui/nsls2ptycho/core/ptycho \
+    -w /eiger_dir \
+    -e OMPI_ALLOW_RUN_AS_ROOT=1 \
+    -e OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1 \
+    -e OMPI_COMM_WORLD_LOCAL_RANK=0 \
+    -e OMPI_COMM_WORLD_LOCAL_SIZE=1 \
+    -e HOLOSCAN_ENABLE_PROFILE=1 \
+    -e QT_QPA_PLATFORM=xcb \
+    -e QT_DEBUG_PLUGINS=0 \
+    -e DISPLAY=$DISPLAY \
+    -v /tmp/.X11-unix:/tmp/.X11-unix\
+    hxn-ptycho-holoscan
+```
+
+Proceed with installing pixi environment as described above.

@@ -24,6 +24,9 @@ target/
 *.swp
 *.swo
 
+#cursorrules
+.cursorrules
+
 #pycharm
 .idea/
 
@@ -40,9 +43,14 @@ eiger_simulation/test_data/*
 
 # reconstruction results
 recon_result/
+.ptycho*
+*.png
+
 
 # egg
 *.egg*/
 
-.ptycho*
-*.png
+# profiling
+*.nsys-rep
+*.sqlite
+*.log

@@ -10,6 +10,13 @@ parser.add_argument(
     default=30,
     help=("number of images to emit"),
 )
+parser.add_argument(
+    "-dt",
+    "--delay_between_frames",
+    type=float,
+    default=0.02,
+    help=("delay between frames"),
+)
 
 args = parser.parse_args()
 
@@ -18,6 +25,8 @@ REST = "http://0.0.0.0:8000"
 print(f"{'-' * 20} Configure number of images {'-' * 20}")
 nimages = {"value": args.nimages}
 r = requests.put(f"{REST}/detector/api/1.8.0/config/nimages", json=nimages)
+print(r.text)
+r = requests.put(f"{REST}/ansto_endpoints/delay_between_frames", json={"value":args.delay_between_frames})
 print(r.text)
 
 print(f"{'-' * 20} Add user data {'-' * 20}")

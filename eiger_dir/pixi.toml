@@ -29,10 +29,11 @@ scipy = ">=1.14"
 gcc = ">=14.0"
 mpi4py = ">=4.0.1"
 pyqtgraph = "==0.13.7"
+nvtx = "0.2.10"
 
 
 [pypi-dependencies]
-holoscan = ">=2.5.0,<2.6.0"
+holoscan = ">=2.9.0,<3.0.0"
 dectris-compression = ">=0.3"
 matplotlib = ">=3.9"
 numba = ">=0.60"
