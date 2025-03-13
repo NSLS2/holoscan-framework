@@ -4,13 +4,13 @@ This repo contains the implementation for real-time ptychography reconstruction 
 
 
 ## Prerequisites
-Both `ptycho_gui` and `ptycho` repos should be cloned to a folder placed one level above the folder containing the current repo, e.g.:
+Both `ptycho_gui` and `ptycho` repos should be cloned to a folder placed one level above the folder containing the current repo and set to the correct development branches (they get periodically updated), e.g.:
 
 ```
-<repo folder>
-    |---/ptycho/
-    |---/ptycho_gui/
-    |---/holoscan-framework/
+<project folder>
+    |---/ptycho/                [branch: holoscan]
+    |---/ptycho_gui/            [branch: HXN_update_2024Q3]
+    |---/holoscan-framework/    [branch: main]
 ```
 
 ## Holoscan App Container
@@ -210,6 +210,9 @@ podman run --rm --net host -it --privileged\
 
 
 ## Docker instructions (optional)
+
+
+Note: to run docker comands, one needs to be in `<project folder>`, i.e. outside of `/holoscan-framework/`
 
 without viz:
 ```
