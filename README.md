@@ -54,7 +54,22 @@ podman run --rm --net host -it --privileged\
     --device nvidia.com/gpu=all hxn-ptycho-holoscan
 ```
 
-
+with docker (optional):
+```
+docker run --rm --net host -it --privileged --ipc=host --runtime=nvidia --gpus all \
+    --ulimit memlock=-1 --ulimit stack=67108864 \
+    -v ./hxn-holoscan/eiger_dir:/eiger_dir \
+    -v ./hxn-holoscan/eiger_simulation/test_data:/test_data \
+    -v ./ptycho_gui:/ptycho_gui \
+    -v ./ptycho:/ptycho_gui/nsls2ptycho/core/ptycho \
+    -w /eiger_dir \
+    -e OMPI_ALLOW_RUN_AS_ROOT=1 \
+    -e OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1 \
+    -e OMPI_COMM_WORLD_LOCAL_RANK=0 \
+    -e OMPI_COMM_WORLD_LOCAL_SIZE=1 \
+    -e HOLOSCAN_ENABLE_PROFILE=1 \
+    hxn-ptycho-holoscan
+```
 
 Note that the directories for `ptycho_gui` and `ptycho` are mounted inside the container.
 
@@ -170,10 +185,10 @@ d270120da233   docker.io/library/eiger_sim:test   "/bin/sh -c 'uvicorn…"   Abo
 Connect to the container:
 ```
 # with podman:
-podman exec -it d270120da233 sh
+podman exec -it d270120da233 bash
 
 # with docker:
-docker exec -it d270120da233 sh
+docker exec -it d270120da233 bash
 ```
 To trigger the detector use the following command:
 ```
@@ -183,75 +198,13 @@ parameter `-n` controls how many images will be transmitted by the API. Once exe
 
 
 
-
-
-
-## Holoscan App Container with vizualization (optional)
-(under development)
-To enable vizualization using pyqtgraph, you can launch the container the following way:
-```
-podman run --rm --net host -it --privileged\
-    -v ./eiger_dir:/eiger_dir \
-    -v ./eiger_simulation/test_data:/test_data \
-    -v ../ptycho_gui:/ptycho_gui \
-    -v ../ptycho:/ptycho_gui/nsls2ptycho/core/ptycho \
-    -w /eiger_dir \
-    -e OMPI_ALLOW_RUN_AS_ROOT=1 \
-    -e OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1 \
-    -e OMPI_COMM_WORLD_LOCAL_RANK=0 \
-    -e OMPI_COMM_WORLD_LOCAL_SIZE=1 \
-    -e HOLOSCAN_ENABLE_PROFILE=1 \
-    -e QT_QPA_PLATFORM=xcb \
-    -e QT_DEBUG_PLUGINS=0 \
-    -e DISPLAY=$DISPLAY \
-    -v /tmp/.X11-unix:/tmp/.X11-unix\
-    --device nvidia.com/gpu=all hxn-ptycho-holoscan
-```
-
-
 ## Docker instructions (optional)
 
 
 Note: to run docker comands, one needs to be in `<project folder>`, i.e. outside of `/holoscan-framework/`
 
 without viz:
-```
-docker run --rm --net host -it --privileged --ipc=host --runtime=nvidia --gpus all \
-    --ulimit memlock=-1 --ulimit stack=67108864 \
-    -v ./hxn-holoscan/eiger_dir:/eiger_dir \
-    -v ./hxn-holoscan/eiger_simulation/test_data:/test_data \
-    -v ./ptycho_gui:/ptycho_gui \
-    -v ./ptycho:/ptycho_gui/nsls2ptycho/core/ptycho \
-    -w /eiger_dir \
-    -e OMPI_ALLOW_RUN_AS_ROOT=1 \
-    -e OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1 \
-    -e OMPI_COMM_WORLD_LOCAL_RANK=0 \
-    -e OMPI_COMM_WORLD_LOCAL_SIZE=1 \
-    -e HOLOSCAN_ENABLE_PROFILE=1 \
-    hxn-ptycho-holoscan
-```
 
 
-
-with viz:
-```
-docker run --rm --net host -it --privileged --ipc=host --runtime=nvidia --gpus all \
-    --ulimit memlock=-1 --ulimit stack=67108864 \
-    -v ./hxn-holoscan/eiger_dir:/eiger_dir \
-    -v ./hxn-holoscan/eiger_simulation/test_data:/test_data \
-    -v ./ptycho_gui:/ptycho_gui \
-    -v ./ptycho:/ptycho_gui/nsls2ptycho/core/ptycho \
-    -w /eiger_dir \
-    -e OMPI_ALLOW_RUN_AS_ROOT=1 \
-    -e OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1 \
-    -e OMPI_COMM_WORLD_LOCAL_RANK=0 \
-    -e OMPI_COMM_WORLD_LOCAL_SIZE=1 \
-    -e HOLOSCAN_ENABLE_PROFILE=1 \
-    -e QT_QPA_PLATFORM=xcb \
-    -e QT_DEBUG_PLUGINS=0 \
-    -e DISPLAY=$DISPLAY \
-    -v /tmp/.X11-unix:/tmp/.X11-unix\
-    hxn-ptycho-holoscan
-```
 
 Proceed with installing pixi environment as described above.
