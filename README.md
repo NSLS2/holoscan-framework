@@ -54,7 +54,7 @@ podman run --rm --net host -it --privileged\
     --device nvidia.com/gpu=all hxn-ptycho-holoscan
 ```
 
-with docker (optional):
+Optional with docker (should be launched from `project folder` containing `holoscan-framework`):
 ```
 docker run --rm --net host -it --privileged --ipc=host --runtime=nvidia --gpus all \
     --ulimit memlock=-1 --ulimit stack=67108864 \
