@@ -241,7 +241,7 @@ def sink_func(image, point, image_index, point_index):
 class EigerRxBase(Application):
     def compose(self):
         simulate_position_data_stream = self.kwargs('eiger_zmq_rx')['simulate_position_data_stream']
-        eiger_zmq_rx = EigerZmqRxOp(self, **self.kwargs('eiger_zmq_rx'))
+        eiger_zmq_rx = EigerZmqRxOp(self, **self.kwargs('eiger_zmq_rx'), name="eiger_zmq_rx")
         
         pos_rx_args = self.kwargs('pos_rx')
         pos_rx_args["simulate_position_data_stream"] = simulate_position_data_stream
