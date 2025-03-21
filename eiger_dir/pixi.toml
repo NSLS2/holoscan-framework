@@ -28,8 +28,7 @@ pyzmq = ">=26.0"
 scipy = ">=1.14"
 gcc = ">=14.0"
 mpi4py = ">=4.0.1"
-pyqtgraph = "==0.13.7"
-nvtx = "0.2.10"
+nvtx = "==0.2.10"
 
 
 [pypi-dependencies]
