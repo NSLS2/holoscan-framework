@@ -58,8 +58,8 @@ Optional with docker (should be launched from `project folder` containing `holos
 ```
 docker run --rm --net host -it --privileged --ipc=host --runtime=nvidia --gpus all \
     --ulimit memlock=-1 --ulimit stack=67108864 \
-    -v ./hxn-holoscan/eiger_dir:/eiger_dir \
-    -v ./hxn-holoscan/eiger_simulation/test_data:/test_data \
+    -v ./holoscan-framework/eiger_dir:/eiger_dir \
+    -v ./holoscan-framework/eiger_simulation/test_data:/test_data \
     -v ./ptycho_gui:/ptycho_gui \
     -v ./ptycho:/ptycho_gui/nsls2ptycho/core/ptycho \
     -w /eiger_dir \
@@ -85,6 +85,8 @@ Installation of ptycho code is done separately using pixi command "postinstall" 
 ```
 pixi run postinstall
 ```
+
+If ptycho is installed on the machine for the first time, navigate, within the container, to `/ptycho_gui/nsls2ptycho/core/ptycho` and run `configure.sh` script to generate `.cubin` files.
 
 To enable the pixi environment run
 ```
