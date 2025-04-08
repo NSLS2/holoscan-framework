@@ -41,13 +41,14 @@ class ImageBatchOp(Operator):
             self.counter = 0
 
 class PointBatchOp(Operator):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, batchsize=200, **kwargs):
         self.logger = logging.getLogger("PointBatchOp")
         logging.basicConfig(level=logging.INFO)
         self.counter = 0
         self.batchsize = batchsize
-        self.points_to_add = np.zeros((2, self.batchsize))
-        self.indices_to_add = np.zeros(self.batchsize, dtype=np.int32)
+        self.point_buffer = None
+        self.index_buffer = None
+
         super().__init__(*args, **kwargs)
 
     def setup(self, spec: OperatorSpec):
@@ -57,18 +58,23 @@ class PointBatchOp(Operator):
         spec.output("point_indices")
         
     def compute(self, op_input, op_output, context):
-        point = op_input.receive("point")
-        point_index = op_input.receive("point_index")
-        
-        self.points_to_add[:, self.counter] = point
-        self.indices_to_add[self.counter] = point_index
-        
-        if self.counter < (self.batchsize - 1):
-            self.counter += 1
+        new_points = op_input.receive("point")
+        new_indices = op_input.receive("point_index")
+        if self.point_buffer is None:
+            self.point_buffer = new_points
+            self.index_buffer = new_indices
         else:
-            op_output.emit(self.points_to_add.copy(), "point_batch")
-            op_output.emit(self.indices_to_add.copy(), "point_indices")
-            self.counter = 0
+            self.point_buffer = np.concatenate((self.point_buffer, new_points), axis=1)
+            self.index_buffer = np.concatenate((self.index_buffer, new_indices), axis=0)
+        
+        if self.point_buffer.shape[1] < self.batchsize:
+            return
+        else:
+            op_output.emit(self.point_buffer[:, :self.batchsize], "point_batch")
+            op_output.emit(self.index_buffer[:self.batchsize], "point_indices")
+            self.point_buffer = self.point_buffer[:, self.batchsize:]
+            self.index_buffer = self.index_buffer[self.batchsize:]
+
 
 class ImagePreprocessorOp(Operator):
     def __init__(self, *args,
@@ -237,7 +243,7 @@ class PreprocAppBase(EigerRxBase):
         # Create operators
         batchsize = self.kwargs('img_batch_op')["batchsize"]
         img_batch_op = ImageBatchOp(self, batchsize=batchsize, name="img_batch_op")
-        # point_batch_op = PointBatchOp(self, batchsize=batchsize, name="point_batch_op")
+        point_batch_op = PointBatchOp(self, batchsize=batchsize, name="point_batch_op")
         
         img_proc_op = ImagePreprocessorOp(self, **self.kwargs('img_proc_op'), name="img_proc_op")
         point_proc_op = PointPreprocessorOp(self, **self.kwargs('point_proc_op'), name="point_proc_op")
@@ -246,7 +252,7 @@ class PreprocAppBase(EigerRxBase):
         
         # Connect source operators to batch operators
         self.add_flow(eiger_zmq_rx, img_batch_op, {("image", "image"), ("image_index", "image_index")})
-        # self.add_flow(pos_rx, point_batch_op, {("point", "point"), ("point_index", "point_index")})
+        self.add_flow(pos_rx, point_batch_op, {("point", "point"), ("point_index", "point_index")})
         
         # Connect batch operators to preprocessing operators with updated port names
         self.add_flow(img_batch_op, img_proc_op, {("image_batch", "image_batch"), ("image_indices", "image_indices_in")})

@@ -250,6 +250,7 @@ class PositionRxOp(Operator):
                     y = np.mean(y, 1)
 
                     final_size = size // self.upsample_factor
+                    idx_start = idx_start // self.upsample_factor
                     index = np.arange(idx_start, idx_start + final_size)      
 
                     op_output.emit(np.array([x, y]), "point")
