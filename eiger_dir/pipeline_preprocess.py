@@ -256,7 +256,7 @@ class PreprocAppBase(EigerRxBase):
         
         # Connect batch operators to preprocessing operators with updated port names
         self.add_flow(img_batch_op, img_proc_op, {("image_batch", "image_batch"), ("image_indices", "image_indices_in")})
-        self.add_flow(pos_rx, point_proc_op, {("point", "point_batch"), ("point_index", "point_indices_in")})
+        self.add_flow(point_batch_op, point_proc_op, {("point", "point_batch"), ("point_index", "point_indices_in")})
         
         # Connect preprocessing operators to gather op
         self.add_flow(img_proc_op, gather_op, {("diff_amp", "diff_amp"), ("image_indices", "image_indices")})
