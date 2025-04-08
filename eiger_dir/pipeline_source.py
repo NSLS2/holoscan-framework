@@ -273,10 +273,15 @@ class PositionRxOp(Operator):
         # op_output.emit(data, "point")
         # op_output.emit(index, "point_index")
 
-@create_op(inputs=("image", "point", "image_index", "point_index"))
-def sink_func(image, point, image_index, point_index):
+@create_op(inputs=("image", "image_index"))
+def sink_image_func(image, image_index):
     print(f"SinkOp received image: {image.shape=}, {image_index=}")
+
+
+@create_op(inputs=("point", "point_index"))
+def sink_point_func(point, point_index):
     print(f"SinkOp received point array: {point.shape=}, {point_index.shape=}")
+
 
 # @create_op(inputs=("image", "image_index"))
 # def sink_func(image, image_index):
@@ -303,12 +308,11 @@ class EigerRxBase(Application):
 class EigerRxApp(EigerRxBase):
     def compose(self):
         eiger_zmq_rx, pos_rx = super().compose()
-        sink = sink_func(self, name="sink")
+        sink_image = sink_image_func(self, name="sink_image")
+        sink_point = sink_point_func(self, name="sink_point")
         
-        self.add_flow(eiger_zmq_rx, sink, {("image", "image"), ("image_index", "image_index")})
-        self.add_flow(pos_rx, sink, {("point", "point"), ("point_index", "point_index")})
-        # self.add_flow(eiger_zmq_rx, sink, {("image", "image"), ("image_index", "image_index")})
-        # self.add_flow(pos_rx, sink, {("point", "point"), ("point_index", "point_index")})
+        self.add_flow(eiger_zmq_rx, sink_image, {("image", "image"), ("image_index", "image_index")})
+        self.add_flow(pos_rx, sink_point, {("point", "point"), ("point_index", "point_index")})
 
 def parse_args():
     parser = ArgumentParser(description="Eiger ingest example")
