@@ -5,7 +5,7 @@ eiger_zmq_rx:
   eiger_ip: "0.0.0.0"
   eiger_port: "5555"
   msg_format: "cbor"
-  simulate_position_data_stream: true
+  simulate_position_data_stream: false
   receive_timeout_ms: 1000
 
 pos_sim_tx:

@@ -233,35 +233,41 @@ class PositionRxOp(Operator):
         op_output.emit(data, "point")
         op_output.emit(index, "point_index")
 
-@create_op(inputs=("image", "point", "image_index", "point_index"))
-def sink_func(image, point, image_index, point_index):
+# @create_op(inputs=("image", "point", "image_index", "point_index"))
+# def sink_func(image, point, image_index, point_index):
+    # print(f"SinkOp received image: {image.shape=}, {image_index=}")
+    # print(f"SinkOp received point: {point=}, {point_index=}")
+
+@create_op(inputs=("image", "image_index"))
+def sink_func(image, image_index):
     print(f"SinkOp received image: {image.shape=}, {image_index=}")
-    print(f"SinkOp received point: {point=}, {point_index=}")
+    # print(f"SinkOp received point: {point=}, {point_index=}")
 
 class EigerRxBase(Application):
     def compose(self):
-        simulate_position_data_stream = self.kwargs('eiger_zmq_rx')['simulate_position_data_stream']
+        # simulate_position_data_stream = self.kwargs('eiger_zmq_rx')['simulate_position_data_stream']
         eiger_zmq_rx = EigerZmqRxOp(self, **self.kwargs('eiger_zmq_rx'), name="eiger_zmq_rx")
         
-        pos_rx_args = self.kwargs('pos_rx')
-        pos_rx_args["simulate_position_data_stream"] = simulate_position_data_stream
-        pos_rx = PositionRxOp(self, **pos_rx_args, name="pos_rx")
+        # pos_rx_args = self.kwargs('pos_rx')
+        # pos_rx_args["simulate_position_data_stream"] = simulate_position_data_stream
+        # pos_rx = PositionRxOp(self, **pos_rx_args, name="pos_rx")
         
-        if simulate_position_data_stream:
-            pos_sim_tx = PositionSimTxOp(self, **self.kwargs('pos_sim_tx'))
-            self.add_flow(eiger_zmq_rx, pos_sim_tx, {("image_index", "image_index")})
-            self.add_flow(pos_sim_tx, pos_rx, {("point", "point_input"), ("point_index", "index_input")})
+        # if simulate_position_data_stream:
+            # pos_sim_tx = PositionSimTxOp(self, **self.kwargs('pos_sim_tx'))
+            # self.add_flow(eiger_zmq_rx, pos_sim_tx, {("image_index", "image_index")})
+            # self.add_flow(pos_sim_tx, pos_rx, {("point", "point_input"), ("point_index", "index_input")})
 
-        return eiger_zmq_rx, pos_rx
+        return eiger_zmq_rx#, pos_rx
 
 
 class EigerRxApp(EigerRxBase):
     def compose(self):
-        eiger_zmq_rx, pos_rx = super().compose()
+        eiger_zmq_rx#, pos_rx = super().compose()
         sink = sink_func(self, name="sink")
         
-        self.add_flow(eiger_zmq_rx, sink, {("image", "image"), ("image_index", "image_index")})
-        self.add_flow(pos_rx, sink, {("point", "point"), ("point_index", "point_index")})
+        self.add_flow(eiger_zmq_rx, sink, {("image", "image")})
+        # self.add_flow(eiger_zmq_rx, sink, {("image", "image"), ("image_index", "image_index")})
+        # self.add_flow(pos_rx, sink, {("point", "point"), ("point_index", "point_index")})
 
 def parse_args():
     parser = ArgumentParser(description="Eiger ingest example")
