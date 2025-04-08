@@ -16,7 +16,7 @@ class ImageBatchOp(Operator):
         logging.basicConfig(level=logging.INFO)
         self.counter = 0
         self.batchsize = batchsize
-        self.images_to_add = np.zeros((self.batchsize, 257, 257))
+        self.images_to_add = np.zeros((self.batchsize, 256, 256))
         self.indices_to_add = np.zeros(self.batchsize, dtype=np.int32)
         super().__init__(*args, **kwargs)
 
