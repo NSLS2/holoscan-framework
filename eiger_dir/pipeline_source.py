@@ -229,25 +229,31 @@ class PositionRxOp(Operator):
             data = np.asarray(op_input.receive("point_input"))
             index = op_input.receive("index_input")
         else:
-            msg = self.socket.recv_json()
-            if msg["msg_type"] == "data":
-                # frame_number = msg["frame_number"]
-                
-                x_ = msg["datasets"][self.data_x_str]["data"]
-                y_ = msg["datasets"][self.data_y_str]["data"]
-                idx_start = msg["datasets"][self.data_x_str]["starting_sample_number"]
-                size = msg["datasets"][self.data_x_str]["size"]
+            try:
+                msg = self.socket.recv_json()
+                if msg["msg_type"] == "data":
+                    # frame_number = msg["frame_number"]
+                    
+                    x_ = msg["datasets"][self.data_x_str]["data"]
+                    y_ = msg["datasets"][self.data_y_str]["data"]
+                    idx_start = msg["datasets"][self.data_x_str]["starting_sample_number"]
+                    size = msg["datasets"][self.data_x_str]["size"]
 
-                x = np.reshape(x_, (size, self.upsample_factor))
-                x = np.mean(x, 1)
-                y = np.reshape(y_, (size, self.upsample_factor))
-                y = np.mean(y, 1)
+                    x = np.reshape(x_, (size, self.upsample_factor))
+                    x = np.mean(x, 1)
+                    y = np.reshape(y_, (size, self.upsample_factor))
+                    y = np.mean(y, 1)
 
-                final_size = size // self.upsample_factor
-                index = np.arange(idx_start, idx_start + final_size)      
+                    final_size = size // self.upsample_factor
+                    index = np.arange(idx_start, idx_start + final_size)      
 
-                op_output.emit(np.array([x, y]), "point")
-                op_output.emit(index, "point_index")
+                    op_output.emit(np.array([x, y]), "point")
+                    op_output.emit(index, "point_index")
+            except zmq.error.Again:
+            # Timeout occurred
+                self.logger.debug("No message received within timeout period")
+            except Exception as e:
+                self.logger.error(f"Error receiving message: {e}")
 
                 # for index, x, y in zip(index, x, y):
                 #     op_output.emit(np.array([x, y]), "point")
@@ -270,7 +276,7 @@ class PositionRxOp(Operator):
 @create_op(inputs=("image", "point", "image_index", "point_index"))
 def sink_func(image, point, image_index, point_index):
     print(f"SinkOp received image: {image.shape=}, {image_index=}")
-    print(f"SinkOp received point: {point=}, {point_index=}")
+    print(f"SinkOp received point array: {point.shape=}, {point_index.shape=}")
 
 # @create_op(inputs=("image", "image_index"))
 # def sink_func(image, image_index):
