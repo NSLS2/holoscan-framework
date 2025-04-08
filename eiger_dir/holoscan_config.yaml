@@ -2,9 +2,9 @@
 
 
 eiger_zmq_rx:
-  eiger_ip: "0.0.0.0"
-  eiger_port: "5555"
-  msg_format: "cbor"
+  eiger_ip: "10.66.19.45"
+  eiger_port: "5559"
+  msg_format: "json"
   simulate_position_data_stream: false
   receive_timeout_ms: 1000
 

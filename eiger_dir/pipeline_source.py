@@ -21,8 +21,9 @@ from holoscan.schedulers import GreedyScheduler, MultiThreadScheduler, EventBase
 supported_encodings = {"bs32-lz4<": "bslz4", "lz4<": "lz4"}
 supported_types = {"uint32": "uint32"}
 def decode_json_message(zmq_message) -> tuple[str, npt.NDArray]:
+    print(zmq_message)
     msg = json.loads(zmq_message.decode())
-
+    print(msg)
     # There should be more robust way to detect this frame
     if "htype" in msg and msg["htype"] == "dimage_d-1.0":
         data_encoding = msg.get("encoding", None)
@@ -92,7 +93,7 @@ class EigerZmqRxOp(Operator):
         self.receive_timeout_ms = receive_timeout_ms
         context = zmq.Context()
         
-        self.socket = context.socket(zmq.PULL)
+        self.socket = context.socket(zmq.SUB)
         # Set receive timeout
         self.socket.setsockopt(zmq.RCVTIMEO, receive_timeout_ms)
 
@@ -262,10 +263,10 @@ class EigerRxBase(Application):
 
 class EigerRxApp(EigerRxBase):
     def compose(self):
-        eiger_zmq_rx#, pos_rx = super().compose()
+        eiger_zmq_rx = super().compose()
         sink = sink_func(self, name="sink")
         
-        self.add_flow(eiger_zmq_rx, sink, {("image", "image")})
+        self.add_flow(eiger_zmq_rx, sink, {("image", "image"), ("image_index", "image_index")})
         # self.add_flow(eiger_zmq_rx, sink, {("image", "image"), ("image_index", "image_index")})
         # self.add_flow(pos_rx, sink, {("point", "point"), ("point_index", "point_index")})
 
