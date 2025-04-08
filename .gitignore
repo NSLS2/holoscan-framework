@@ -1,5 +1,6 @@
 # Byte-compiled / optimized / DLL files
 __pycache__/
+eiger_dir/__pycache__/
 
 # Sphinx documentation
 docs/build/
@@ -19,6 +20,8 @@ target/
 #mac
 .DS_Store
 *~
+
+*.npy
 
 #vim
 *.swp

@@ -30,6 +30,7 @@ scipy = ">=1.14"
 gcc = ">=14.0"
 mpi4py = ">=4.0.1"
 nvtx = "==0.2.10"
+git = "*"
 
 
 [pypi-dependencies]

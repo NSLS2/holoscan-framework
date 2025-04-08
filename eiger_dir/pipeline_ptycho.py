@@ -5,9 +5,15 @@ import numpy as np
 import cupy as cp
 
 
-from nsls2ptycho.core.ptycho.recon_ptycho_gui import create_recon_object, deal_with_init_prb
-from nsls2ptycho.core.ptycho.utils import parse_config
-from nsls2ptycho.core.ptycho_param import Param
+import sys
+sys.path.append('/ptycho_gui/')
+
+from nsls2ptycho2.core.ptycho.utils import parse_config
+from nsls2ptycho2.core.ptycho.recon_ptycho_gui import recon_gui
+
+# from nsls2ptycho.core.ptycho.recon_ptycho_gui import create_recon_object, deal_with_init_prb
+# from nsls2ptycho.core.ptycho.utils import parse_config
+# from nsls2ptycho.core.ptycho_param import Param
 
 from holoscan.core import Application, Operator, OperatorSpec
 from holoscan.schedulers import GreedyScheduler, MultiThreadScheduler, EventBasedScheduler
@@ -114,31 +120,64 @@ class PtychoRecon(Operator):
     def __init__(self,*args, **kwargs):
         super().__init__(*args,**kwargs)
 
-        param = parse_config('./ptycho_config.txt')
+        param = parse_config('./ptycho_holo/ptycho_config.txt')
         param.live_recon_flag = True
 
         self.recon, rank = recon_gui(param)
         self.recon.setup()
+
 
     def setup(self,spec):
         spec.input("batch")
         spec.output("output")
 
     def compute(self,op_input,op_output,context):
-        diff_d = op_input.receive("det_frame")
-        point_info_d = op_input.receive("panda_pos")
+        # diff_d = op_input.receive("det_frame")
+        # point_info_d = op_input.receive("panda_pos")
 
         data = op_input.receive("batch")
-        diff_d = cp.asarray(data["diff_amp"])
-        points = cp.asarray(data["points"])
+        diff_d = cp.asarray(data["diff_amp"],dtype=np.float32)   #500x256x256
+        points = cp.asarray(data["points"])     #2x500
 
-        cp.cuda.runtime.memcpy(self.recon.diff_d.data.ptr,diff_d.ctypes.data,diff_d.nbytes,cp.cuda.runtime.memcpyHostToDevice)
-        cp.cuda.runtime.memcpy(self.recon.point_info_d.data.ptr,point_info_d.ctypes.data,point_info_d.nbytes,cp.cuda.runtime.memcpyHostToDevice)
+        pos0 = points[0]
+        pos1 = points[1]
+        
+        if self.recon.pos_x_base is None:
+            self.recon.pos_x_base = np.min(pos0)
+
+        if self.recon.pos_y_base is None:
+            self.recon.pos_y_base = pos1[0]
+            if pos1[-1]<pos1[0]:
+                self.recon.pos_y_base -= self.recon.y_range_um
+
+        points0 = np.round((pos0-self.recon.pos_x_base)*1.e-6/self.recon.x_pixel_m)
+        points1 = np.round((pos1-self.recon.pos_y_base)*1.e-6/self.recon.y_pixel_m)
+
+        #self.points[0] = np.floor(self.points[0]*1.e-6/self.x_pixel_m) + (np.random.rand()<(self.points[0]*1.e-6/self.x_pixel_m - np.floor(self.points[0]*1.e-6/self.x_pixel_m)))
+        #self.points[1] = np.floor(self.points[1]*1.e-6/self.y_pixel_m) + (np.random.rand()<(self.points[1]*1.e-6/self.y_pixel_m - np.floor(self.points[1]*1.e-6/self.y_pixel_m)))
+        
+        points0 = points0 + self.recon.nx_prb / 2 + self.recon.obj_pad//2
+        points1 = points1 + self.recon.ny_prb / 2 + self.recon.obj_pad//2
+
+        for index in range(points.shape[1]):
+            self.recon.point_info_d[index,:] = cp.array([(int(points0[index] - self.recon.nx_prb//2), int(points0[index] + self.recon.nx_prb//2), \
+                            int(points1[index] - self.recon.ny_prb//2), int(points1[index] + self.recon.ny_prb//2))]\
+                                , dtype=np.int32, order='C')
+            
 
         self.recon.num_points_recon = diff_d.shape[0]
+
+        cp.copyto(self.recon.diff_d[0:self.recon.num_points_recon],diff_d)
+        #cp.cuda.runtime.memcpy(self.recon.diff_d[0:self.recon.num_points_recon].data.ptr,diff_d.ctypes.data,diff_d.nbytes,cp.cuda.runtime.memcpyHostToDevice)
+
+        diff_d = np.load('./ptycho_holo/diff_d.npy')
+        point_info_d = np.load('./ptycho_holo/point_info_d.npy')
+        cp.cuda.runtime.memcpy(self.recon.diff_d.data.ptr,diff_d.ctypes.data,diff_d.nbytes,cp.cuda.runtime.memcpyHostToDevice)
+        # cp.cuda.runtime.memcpy(self.recon.point_info_d.data.ptr,point_info_d.ctypes.data,point_info_d.nbytes,cp.cuda.runtime.memcpyHostToDevice)
+
         self.recon.live_update_plan_last()
 
-        for it in range(50):
+        for it in range(20):
             self.recon.one_iter(it)
 
         op_output.emit(self.recon.obj, "output")
@@ -153,16 +192,18 @@ class PtychoApp(PreprocAppBase):
     def compose(self):
         eiger_zmq_rx, pos_rx, gather_op = super().compose()
 
-        
 
-        sdet = source_det(self,name='sdet')
-        spos = source_pos(self,name='spos')
         pty = PtychoRecon(self,name='pty')
         o = SaveResult(self,name='out')
-        self.add_flow(sdet,pty,{('det_frame','det_frame')})
-        self.add_flow(spos,pty,{('panda_pos','panda_pos')})
+        self.add_flow(gather_op, pty, {("batch1", "batch")})
         self.add_flow(pty,o)
 
+
+        # sdet = source_det(self,name='sdet')
+        # spos = source_pos(self,name='spos')
+        # pty = PtychoRecon(self,name='pty')
+        # self.add_flow(sdet,pty,{('det_frame','det_frame')})
+        # self.add_flow(spos,pty,{('panda_pos','panda_pos')})
 
 # class PtychoAppBase(PreprocAppBase):
 #     def compose(self):

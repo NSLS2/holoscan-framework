@@ -23,7 +23,7 @@ pos_rx:
   batchsize: 200
 
 img_batch_op:
-  batchsize: 250
+  batchsize: 1250
 
 img_proc_op:
   # roi: [[1, 257], [1,257]]
@@ -38,5 +38,5 @@ gather_op:
   num_batches_overlap: 0
 
 recon_op:
-  ptycho_config_path: "./ptycho_config"
+  ptycho_config_path: "./ptycho_holo/ptycho_config"
   # working_directory: "/eiger_dir/" # will overwrite whatever is in the ptycho_config_path
