@@ -196,6 +196,7 @@ class PositionRxOp(Operator):
                 data_x_str:str=None,
                 data_y_str:str=None,
                 simulate_position_data_stream:bool=None,
+                upsample_factor:int=None,
                 **kwargs):
         self.simulate_position_data_stream = simulate_position_data_stream
         super().__init__(*args, **kwargs)
@@ -204,15 +205,17 @@ class PositionRxOp(Operator):
         self.data_index_str = data_index_str
         self.data_x_str = data_x_str
         self.data_y_str = data_y_str
-
+        self.upsample_factor = upsample_factor
         if not self.simulate_position_data_stream:
             self.endpoint = f"tcp://{pandabox_ip}:{pandabox_port}"
             context = zmq.Context()
-            self.socket = context.socket(zmq.SUB)
-            self.socket.connect(self.endpoint)
-            self.socket.setsockopt_string(zmq.SUBSCRIBE, "")
+            socket = context.socket(zmq.SUB)
+            socket.connect(self.endpoint)
+            socket.setsockopt_string(zmq.SUBSCRIBE, "")
             # Set receive timeout
-            self.socket.setsockopt(zmq.RCVTIMEO, receive_timeout_ms)
+            socket.setsockopt(zmq.RCVTIMEO, receive_timeout_ms)
+            self.socket = socket
+
 
     def setup(self, spec: OperatorSpec):
         if self.simulate_position_data_stream:
@@ -228,12 +231,27 @@ class PositionRxOp(Operator):
         else:
             msg = self.socket.recv_json()
             if msg["msg_type"] == "data":
-                index = msg["datasets"][self.data_index_str]["data"]
-                x = msg["datasets"][self.data_x_str]["data"]
-                y = msg["datasets"][self.data_y_str]["data"]
-                for index, x, y in zip(index, x, y):
-                    op_output.emit(np.array([x, y]), "point")
-                    op_output.emit(index, "point_index")
+                # frame_number = msg["frame_number"]
+                
+                x_ = msg["datasets"][self.data_x_str]["data"]
+                y_ = msg["datasets"][self.data_y_str]["data"]
+                idx_start = msg["datasets"][self.data_x_str]["starting_sample_number"]
+                size = msg["datasets"][self.data_x_str]["size"]
+
+                x = np.reshape(x_, (size, self.upsample_factor))
+                x = np.mean(x, 1)
+                y = np.reshape(y_, (size, self.upsample_factor))
+                y = np.mean(y, 1)
+
+                final_size = size // self.upsample_factor
+                index = np.arange(idx_start, idx_start + final_size)      
+
+                op_output.emit(np.array([x, y]), "point")
+                op_output.emit(index, "point_index")
+
+                # for index, x, y in zip(index, x, y):
+                #     op_output.emit(np.array([x, y]), "point")
+                #     op_output.emit(index, "point_index")
                     
 # example of msg:
 # {'msg_type': 'start', 'arm_time': '2025-02-28T18:44:22.905865051Z', 'start_time': '2025-02-28T18:44:22.905908989Z', 'hw_time_offset_ns': None}
@@ -246,42 +264,43 @@ class PositionRxOp(Operator):
 
 
             # data = np.array([0, 0]) # placeholder - this should be changed to something that will actually receive the data
-        op_output.emit(data, "point")
-        op_output.emit(index, "point_index")
+        # op_output.emit(data, "point")
+        # op_output.emit(index, "point_index")
 
-# @create_op(inputs=("image", "point", "image_index", "point_index"))
-# def sink_func(image, point, image_index, point_index):
-    # print(f"SinkOp received image: {image.shape=}, {image_index=}")
-    # print(f"SinkOp received point: {point=}, {point_index=}")
-
-@create_op(inputs=("image", "image_index"))
-def sink_func(image, image_index):
+@create_op(inputs=("image", "point", "image_index", "point_index"))
+def sink_func(image, point, image_index, point_index):
     print(f"SinkOp received image: {image.shape=}, {image_index=}")
-    # print(f"SinkOp received point: {point=}, {point_index=}")
+    print(f"SinkOp received point: {point=}, {point_index=}")
+
+# @create_op(inputs=("image", "image_index"))
+# def sink_func(image, image_index):
+#     print(f"SinkOp received image: {image.shape=}, {image_index=}")
+#     # print(f"SinkOp received point: {point=}, {point_index=}")
 
 class EigerRxBase(Application):
     def compose(self):
-        # simulate_position_data_stream = self.kwargs('eiger_zmq_rx')['simulate_position_data_stream']
+        simulate_position_data_stream = self.kwargs('eiger_zmq_rx')['simulate_position_data_stream']
         eiger_zmq_rx = EigerZmqRxOp(self, **self.kwargs('eiger_zmq_rx'), name="eiger_zmq_rx")
         
-        # pos_rx_args = self.kwargs('pos_rx')
+        pos_rx_args = self.kwargs('pos_rx')
         # pos_rx_args["simulate_position_data_stream"] = simulate_position_data_stream
-        # pos_rx = PositionRxOp(self, **pos_rx_args, name="pos_rx")
+        pos_rx = PositionRxOp(self, **pos_rx_args, name="pos_rx")
         
-        # if simulate_position_data_stream:
-            # pos_sim_tx = PositionSimTxOp(self, **self.kwargs('pos_sim_tx'))
-            # self.add_flow(eiger_zmq_rx, pos_sim_tx, {("image_index", "image_index")})
-            # self.add_flow(pos_sim_tx, pos_rx, {("point", "point_input"), ("point_index", "index_input")})
+        if simulate_position_data_stream:
+            pos_sim_tx = PositionSimTxOp(self, **self.kwargs('pos_sim_tx'))
+            self.add_flow(eiger_zmq_rx, pos_sim_tx, {("image_index", "image_index")})
+            self.add_flow(pos_sim_tx, pos_rx, {("point", "point_input"), ("point_index", "index_input")})
 
-        return eiger_zmq_rx#, pos_rx
+        return eiger_zmq_rx, pos_rx
 
 
 class EigerRxApp(EigerRxBase):
     def compose(self):
-        eiger_zmq_rx = super().compose()
+        eiger_zmq_rx, pos_rx = super().compose()
         sink = sink_func(self, name="sink")
         
         self.add_flow(eiger_zmq_rx, sink, {("image", "image"), ("image_index", "image_index")})
+        self.add_flow(pos_rx, sink, {("point", "point"), ("point_index", "point_index")})
         # self.add_flow(eiger_zmq_rx, sink, {("image", "image"), ("image_index", "image_index")})
         # self.add_flow(pos_rx, sink, {("point", "point"), ("point_index", "point_index")})
 
