@@ -114,39 +114,38 @@ class EigerZmqRxOp(Operator):
             # msg = self.socket.recv()
             # self.logger.info(f"Received message: {msg}")
             
-            try:
-                if self.msg_format == "json":
-                    while True:
-                        msg = self.socket.recv()
-                        msg = json.loads(msg.decode())
-                        if "frame" in msg:
-                            break
-                    frame_id = msg["frame"]
-                    
-                    # encoding info
-                    encoding_msg = self.socket.recv()
-                    encoding_msg = json.loads(encoding_msg.decode())
-
-                    data_msg = self.socket.recv()
-                    msg_type = "image"
-                    _, image_data = decode_json_message(data_msg, encoding_msg)
-
-                elif self.msg_format == "cbor":
+            if self.msg_format == "json":
+                while True:
                     msg = self.socket.recv()
-                    msg_type, image_data = decode_cbor_message(msg)
-                    frame_id = self.index
+                    msg = json.loads(msg.decode())
+                    if "frame" in msg:
+                        break
+                frame_id = msg["frame"]
+                
+                # encoding info
+                encoding_msg = self.socket.recv()
+                encoding_msg = json.loads(encoding_msg.decode())
 
-                if msg_type == "image":
-                    op_output.emit(image_data, "image")
-                    op_output.emit(frame_id, "image_index")
-                    self.index += 1
-                else: # probably should have a better handling of start/end messages
-                    self.index = 0
+                data_msg = self.socket.recv()
+                msg_type = "image"
+                _, image_data = decode_json_message(data_msg, encoding_msg)
 
-            except Exception as ex:
-                result = "ERROR: Failed to process message: {ex}"
-                print(f"{pprint.pformat(result)}")
-                print(traceback.format_exc())
+            elif self.msg_format == "cbor":
+                msg = self.socket.recv()
+                msg_type, image_data = decode_cbor_message(msg)
+                frame_id = self.index
+
+            if msg_type == "image":
+                op_output.emit(image_data, "image")
+                op_output.emit(frame_id, "image_index")
+                self.index += 1
+            else: # probably should have a better handling of start/end messages
+                self.index = 0
+
+            # except Exception as ex:
+            #     result = "ERROR: Failed to process message: {ex}"
+            #     print(f"{pprint.pformat(result)}")
+            #     print(traceback.format_exc())
                 
         except zmq.error.Again:
             # Timeout occurred
