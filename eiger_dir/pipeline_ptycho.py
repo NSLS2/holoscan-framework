@@ -19,99 +19,184 @@ from pipeline_preprocess import PreprocAppBase
 
 import nvtx
 
-class ReconOp(Operator):
-    def __init__(self, *args, param=None, **kwargs):
-        self.logger = logging.getLogger("ReconOp")
-        logging.basicConfig(level=logging.INFO)
-        super().__init__(*args, **kwargs)
-        self.param = param
-        self.recon = create_recon_object(param)
+# class ReconOp(Operator):
+#     def __init__(self, *args, param=None, **kwargs):
+#         self.logger = logging.getLogger("ReconOp")
+#         logging.basicConfig(level=logging.INFO)
+#         super().__init__(*args, **kwargs)
+#         self.param = param
+#         self.recon = create_recon_object(param)
         
-    def setup(self, spec):
-        spec.input("batch")
-        spec.output("result")
+#     def setup(self, spec):
+#         spec.input("batch")
+#         spec.output("result")
     
-    def compute(self, op_input, op_output, context):
-        tensor = op_input.receive("batch")
-        diff_d_to_add = cp.asarray(tensor["diff_amp"])
-        points_to_add = cp.asarray(tensor["points"])
+#     def compute(self, op_input, op_output, context):
+#         tensor = op_input.receive("batch")
+#         diff_d_to_add = cp.asarray(tensor["diff_amp"])
+#         points_to_add = cp.asarray(tensor["points"])
         
-        if np.all(self.recon.prb == 0): # if probe is trivial it means that it was not fully initialized
-            with nvtx.annotate("deal_with_init_prb", color="red"):
-                prb_init = deal_with_init_prb(self.recon, self.param, diff_d_to_add)
-                self.recon.prb += cp.asnumpy(prb_init.astype(self.recon.complex_precision))
-                self.recon.prb_d[:, :] += prb_init.astype(self.recon.complex_precision)
+#         if np.all(self.recon.prb == 0): # if probe is trivial it means that it was not fully initialized
+#             with nvtx.annotate("deal_with_init_prb", color="red"):
+#                 prb_init = deal_with_init_prb(self.recon, self.param, diff_d_to_add)
+#                 self.recon.prb += cp.asnumpy(prb_init.astype(self.recon.complex_precision))
+#                 self.recon.prb_d[:, :] += prb_init.astype(self.recon.complex_precision)
 
-        with nvtx.annotate("self.recon.update_arrays", color="green"):
-            self.recon.update_arrays(diff_d_to_add, points_to_add * -1)
+#         with nvtx.annotate("self.recon.update_arrays", color="green"):
+#             self.recon.update_arrays(diff_d_to_add, points_to_add * -1)
 
-        self.recon.recon_ptycho_run()
-        output = self.recon.fetch_obj_ave()
+#         self.recon.recon_ptycho_run()
+#         output = self.recon.fetch_obj_ave()
 
-        op_output.emit(output, "result")
+#         op_output.emit(output, "result")
 
 
-class ReconResultOp(Operator):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.logger = logging.getLogger("ReconResultOp")
-        logging.basicConfig(level=logging.INFO)
-        self.batched_result = None
+# class ReconResultOp(Operator):
+#     def __init__(self, *args, **kwargs):
+#         super().__init__(*args, **kwargs)
+#         self.logger = logging.getLogger("ReconResultOp")
+#         logging.basicConfig(level=logging.INFO)
+#         self.batched_result = None
         
-    def setup(self, spec: OperatorSpec):
-        spec.input("in")
-        spec.output("out")
+#     def setup(self, spec: OperatorSpec):
+#         spec.input("in")
+#         spec.output("out")
         
-    def compute(self, op_input, op_output, context):
-        obj = op_input.receive("in")
-        if self.batched_result is None:
-            self.batched_result = obj.copy()
-        else:
-            # this implies that at most two batches overlap
-            self.batched_result = np.nanmean(
-                np.array([self.batched_result, obj.copy()]), axis=0)
-        out = np.nan_to_num(self.batched_result, nan=0.0)
-        op_output.emit(out, "out")
+#     def compute(self, op_input, op_output, context):
+#         obj = op_input.receive("in")
+#         if self.batched_result is None:
+#             self.batched_result = obj.copy()
+#         else:
+#             # this implies that at most two batches overlap
+#             self.batched_result = np.nanmean(
+#                 np.array([self.batched_result, obj.copy()]), axis=0)
+#         out = np.nan_to_num(self.batched_result, nan=0.0)
+#         op_output.emit(out, "out")
 
 
-@create_op(inputs="result")
-def sink_func(result):
-    print(f"SinkOp received the result from reconstruction {np.sum(result>0)=}")
+# @create_op(inputs="result")
+# def sink_func(result):
+#     print(f"SinkOp received the result from reconstruction {np.sum(result>0)=}")
 
 
-class PtychoAppBase(PreprocAppBase):
+
+class source_det(Operator):
+    def __init__(self,*args,**kwargs):
+        super().__init__(*args,**kwargs)
+        self.done = False
+
+    def setup(self,spec):
+        spec.output("det_frame")
+
+    def compute(self,op_input,op_output,context):
+        if not self.done:
+            diff_d = np.load('diff_d.npy')
+            op_output.emit(diff_d,"det_frame")
+            self.done = True
+        
+
+class source_pos(Operator):
+    def __init__(self,*args,**kwargs):
+        super().__init__(*args,**kwargs)
+        self.done = False
+
+    def setup(self,spec):
+        spec.output("panda_pos")
+
+    def compute(self,op_input,op_output,context):
+        if not self.done:
+            point_info_d = np.load('point_info_d.npy')
+            op_output.emit(point_info_d,"panda_pos")
+            self.done = True
+
+
+class PtychoRecon(Operator):
+    def __init__(self,*args, **kwargs):
+        super().__init__(*args,**kwargs)
+
+        param = parse_config('./ptycho_config.txt')
+        param.live_recon_flag = True
+
+        self.recon, rank = recon_gui(param)
+        self.recon.setup()
+
+    def setup(self,spec):
+        spec.input("batch")
+        spec.output("output")
+
+    def compute(self,op_input,op_output,context):
+        diff_d = op_input.receive("det_frame")
+        point_info_d = op_input.receive("panda_pos")
+
+        data = op_input.receive("batch")
+        diff_d = cp.asarray(data["diff_amp"])
+        points = cp.asarray(data["points"])
+
+        cp.cuda.runtime.memcpy(self.recon.diff_d.data.ptr,diff_d.ctypes.data,diff_d.nbytes,cp.cuda.runtime.memcpyHostToDevice)
+        cp.cuda.runtime.memcpy(self.recon.point_info_d.data.ptr,point_info_d.ctypes.data,point_info_d.nbytes,cp.cuda.runtime.memcpyHostToDevice)
+
+        self.recon.num_points_recon = diff_d.shape[0]
+        self.recon.live_update_plan_last()
+
+        for it in range(50):
+            self.recon.one_iter(it)
+
+        op_output.emit(self.recon.obj, "output")
+
+@create_op(inputs="output")
+def SaveResult(output):
+    np.save('output.npy',output)
+    return
+    
+
+class PtychoApp(PreprocAppBase):
     def compose(self):
-        recon_param = parse_config(self.kwargs("recon_op")["ptycho_config_path"], Param())
-        recon_param.working_directory = self.kwargs("recon_op")["working_directory"]
-        
         eiger_zmq_rx, pos_rx, gather_op = super().compose()
-        
-        num_parallel_streams = self.kwargs("gather_op")["num_parallel_streams"]
-        # Create N reconstruction operators
-        recon_ops = []
-        for i in range(1, num_parallel_streams + 1):
-            recon = ReconOp(self, 
-                           param=recon_param,
-                           name=f"recon{i}")
-            recon_ops.append(recon)
-            # Connect gather_op output to this recon operator
-            self.add_flow(gather_op, recon, {(f"batch{i}", "batch")})
-        
-        # Create single batch stacker for combining all results
-        recon_result_stacker = ReconResultOp(self, name="recon_result_stacker")
-        
-        # Connect all recon operators to the same batch stacker
-        for recon in recon_ops:
-            self.add_flow(recon, recon_result_stacker, {("result", "in")})
-        
-        return eiger_zmq_rx, pos_rx, recon_result_stacker
+
         
 
-class PtychoApp(PtychoAppBase):
-    def compose(self):
-        _, _, recon_result_stacker = super().compose()
-        sink = sink_func(self, name="sink")
-        self.add_flow(recon_result_stacker, sink)
+        sdet = source_det(self,name='sdet')
+        spos = source_pos(self,name='spos')
+        pty = PtychoRecon(self,name='pty')
+        o = SaveResult(self,name='out')
+        self.add_flow(sdet,pty,{('det_frame','det_frame')})
+        self.add_flow(spos,pty,{('panda_pos','panda_pos')})
+        self.add_flow(pty,o)
+
+
+# class PtychoAppBase(PreprocAppBase):
+#     def compose(self):
+#         recon_param = parse_config(self.kwargs("recon_op")["ptycho_config_path"], Param())
+#         recon_param.working_directory = self.kwargs("recon_op")["working_directory"]
+        
+#         eiger_zmq_rx, pos_rx, gather_op = super().compose()
+        
+#         num_parallel_streams = self.kwargs("gather_op")["num_parallel_streams"]
+#         # Create N reconstruction operators
+#         recon_ops = []
+#         for i in range(1, num_parallel_streams + 1):
+#             recon = ReconOp(self, 
+#                            param=recon_param,
+#                            name=f"recon{i}")
+#             recon_ops.append(recon)
+#             # Connect gather_op output to this recon operator
+#             self.add_flow(gather_op, recon, {(f"batch{i}", "batch")})
+        
+#         # Create single batch stacker for combining all results
+#         recon_result_stacker = ReconResultOp(self, name="recon_result_stacker")
+        
+#         # Connect all recon operators to the same batch stacker
+#         for recon in recon_ops:
+#             self.add_flow(recon, recon_result_stacker, {("result", "in")})
+        
+#         return eiger_zmq_rx, pos_rx, recon_result_stacker
+        
+
+# class PtychoApp(PtychoAppBase):
+#     def compose(self):
+#         _, _, recon_result_stacker = super().compose()
+#         sink = sink_func(self, name="sink")
+#         self.add_flow(recon_result_stacker, sink)
 
 
 if __name__ == "__main__":# eiger_ip, eiger_port, msg_format, simulate_position_data_stream, position_data_path = parse_source_args()

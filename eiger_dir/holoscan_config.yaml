@@ -39,4 +39,4 @@ gather_op:
 
 recon_op:
   ptycho_config_path: "./ptycho_config"
-  working_directory: "/eiger_dir/" # will overwrite whatever is in the ptycho_config_path
+  # working_directory: "/eiger_dir/" # will overwrite whatever is in the ptycho_config_path
