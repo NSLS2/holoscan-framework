@@ -7,6 +7,7 @@ eiger_zmq_rx:
   msg_format: "json"
   simulate_position_data_stream: false
   receive_timeout_ms: 1000
+  roi: [[644, 900], [525, 781]]
 
 pos_sim_tx:
   position_data_path: "/test_data/scan_257331.h5"
@@ -18,15 +19,16 @@ pos_rx:
   data_index_str: "/COUNTER1.OUT.Value"
   data_x_str: "/INENC1.VAL.Value"
   data_y_str: "/INENC2.VAL.Value"
-  upsample_factor: 10 
+  upsample_factor: 10
+  batchsize: 200
 
 img_batch_op:
-  batchsize: 250
+  batchsize: 200
 
 img_proc_op:
-  roi: [[1, 257], [1,257]]
+  # roi: [[1, 257], [1,257]]
   detmap_threshold: 0
-  badpixels: [[207], [211]]
+  badpixels: []
 
 point_proc_op: null
 

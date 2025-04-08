@@ -39,7 +39,7 @@ def decode_json_message(data_msg, encoding_msg) -> tuple[str, npt.NDArray]:
         elem_size = elem_type(0).nbytes
         decompressed = decompress(data_msg, data_encoding_str, elem_size=elem_size)
         image = np.frombuffer(decompressed, dtype=elem_type)
-        image = image.reshape(data_shape)
+        image = image.reshape(data_shape[1], data_shape[0])
         msg_type = "image"
     else:
         msg_type = ""
@@ -83,11 +83,13 @@ class EigerZmqRxOp(Operator):
                  msg_format:str=None,
                  simulate_position_data_stream:bool=False,
                  receive_timeout_ms:int=1000,  # 1 second timeout
+                 roi:list[int]=None,
                  **kwargs):
         
         self.endpoint = f"tcp://{eiger_ip}:{eiger_port}"
         self.msg_format = msg_format
         self.index = 0
+        self.roi = np.array(roi)
         self.simulate_position_data_stream = simulate_position_data_stream
         self.receive_timeout_ms = receive_timeout_ms
         context = zmq.Context()
@@ -132,7 +134,8 @@ class EigerZmqRxOp(Operator):
                 data_msg = self.socket.recv()
                 msg_type = "image"
                 _, image_data = decode_json_message(data_msg, encoding_msg)
-
+                image_data = image_data[self.roi[0, 0]:self.roi[0, 1],
+                                        self.roi[1, 0]:self.roi[1, 1]]
             elif self.msg_format == "cbor":
                 msg = self.socket.recv()
                 msg_type, image_data = decode_cbor_message(msg)

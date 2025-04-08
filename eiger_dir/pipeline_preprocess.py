@@ -41,7 +41,7 @@ class ImageBatchOp(Operator):
             self.counter = 0
 
 class PointBatchOp(Operator):
-    def __init__(self, *args, batchsize=250, **kwargs):
+    def __init__(self, *args, **kwargs):
         self.logger = logging.getLogger("PointBatchOp")
         logging.basicConfig(level=logging.INFO)
         self.counter = 0
@@ -72,13 +72,13 @@ class PointBatchOp(Operator):
 
 class ImagePreprocessorOp(Operator):
     def __init__(self, *args,
-                 roi=[[1, 257], [1,257]],
+                #  roi=[[1, 257], [1,257]],
                  detmap_threshold=0,
                  badpixels=[[207], [211]],
                  **kwargs):
         self.logger = logging.getLogger("ImagePreprocessorOp")
         logging.basicConfig(level=logging.INFO)
-        self.roi = np.array(roi)
+        # self.roi = np.array(roi)
         self.detmap_threshold = detmap_threshold
         self.badpixels = np.array(badpixels)
         super().__init__(*args, **kwargs)
@@ -100,7 +100,7 @@ class ImagePreprocessorOp(Operator):
             y = int(bd[1])
             processed_images[:, x, y] = cp.median(processed_images[:, x-1:x+2, y-1:y+2], axis=(2, 1))
         
-        processed_images = processed_images[:, self.roi[0,0]:self.roi[0,1], self.roi[1,0]:self.roi[1,1]]
+        # processed_images = processed_images[:, self.roi[0,0]:self.roi[0,1], self.roi[1,0]:self.roi[1,1]]
         processed_images = cp.rot90(processed_images, axes=(2,1))
         processed_images = cp.fft.fftshift(processed_images, axes=(2,1))
         if self.detmap_threshold > 0:
@@ -237,7 +237,7 @@ class PreprocAppBase(EigerRxBase):
         # Create operators
         batchsize = self.kwargs('img_batch_op')["batchsize"]
         img_batch_op = ImageBatchOp(self, batchsize=batchsize, name="img_batch_op")
-        point_batch_op = PointBatchOp(self, batchsize=batchsize, name="point_batch_op")
+        # point_batch_op = PointBatchOp(self, batchsize=batchsize, name="point_batch_op")
         
         img_proc_op = ImagePreprocessorOp(self, **self.kwargs('img_proc_op'), name="img_proc_op")
         point_proc_op = PointPreprocessorOp(self, **self.kwargs('point_proc_op'), name="point_proc_op")
@@ -246,11 +246,11 @@ class PreprocAppBase(EigerRxBase):
         
         # Connect source operators to batch operators
         self.add_flow(eiger_zmq_rx, img_batch_op, {("image", "image"), ("image_index", "image_index")})
-        self.add_flow(pos_rx, point_batch_op, {("point", "point"), ("point_index", "point_index")})
+        # self.add_flow(pos_rx, point_batch_op, {("point", "point"), ("point_index", "point_index")})
         
         # Connect batch operators to preprocessing operators with updated port names
         self.add_flow(img_batch_op, img_proc_op, {("image_batch", "image_batch"), ("image_indices", "image_indices_in")})
-        self.add_flow(point_batch_op, point_proc_op, {("point_batch", "point_batch"), ("point_indices", "point_indices_in")})
+        self.add_flow(pos_rx, point_proc_op, {("point", "point_batch"), ("point_index", "point_indices_in")})
         
         # Connect preprocessing operators to gather op
         self.add_flow(img_proc_op, gather_op, {("diff_amp", "diff_amp"), ("image_indices", "image_indices")})
