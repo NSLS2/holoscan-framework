@@ -90,7 +90,7 @@ class EigerZmqRxOp(Operator):
         self.receive_timeout_ms = receive_timeout_ms
         context = zmq.Context()
         
-        self.socket = context.socket(zmq.SUB)
+        self.socket = context.socket(zmq.PULL)
         # Set receive timeout
         self.socket.setsockopt(zmq.RCVTIMEO, receive_timeout_ms)
 
@@ -128,15 +128,17 @@ class EigerZmqRxOp(Operator):
                     encoding_msg = json.loads(encoding_msg.decode())
 
                     data_msg = self.socket.recv()
+                    msg_type = "image"
                     _, image_data = decode_json_message(data_msg, encoding_msg)
 
                 elif self.msg_format == "cbor":
                     msg = self.socket.recv()
                     msg_type, image_data = decode_cbor_message(msg)
+                    frame_id = self.index
 
                 if msg_type == "image":
                     op_output.emit(image_data, "image")
-                    op_output.emit(self.index, "image_index")
+                    op_output.emit(frame_id, "image_index")
                     self.index += 1
                 else: # probably should have a better handling of start/end messages
                     self.index = 0
