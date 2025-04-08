@@ -18,7 +18,7 @@ from holoscan.core import Application, Operator, OperatorSpec, Tracker
 from holoscan.decorator import create_op
 from holoscan.schedulers import GreedyScheduler, MultiThreadScheduler, EventBasedScheduler
 
-supported_encodings = {"bs32-lz4<": "bslz4", "lz4<": "lz4", "bs16-lz4<": "bs16lz4"}
+supported_encodings = {"bs32-lz4<": "bslz4", "lz4<": "lz4", "bs16-lz4<": "bslz4"}
 supported_types = {"uint32": "uint32", "uint16": "uint16"}
 def decode_json_message(data_msg, encoding_msg) -> tuple[str, npt.NDArray]:
     # There should be more robust way to detect this frame
