@@ -39,6 +39,7 @@ def decode_json_message(data_msg, encoding_msg) -> tuple[str, npt.NDArray]:
         elem_size = elem_type(0).nbytes
         decompressed = decompress(data_msg, data_encoding_str, elem_size=elem_size)
         image = np.frombuffer(decompressed, dtype=elem_type)
+        msg_type = "image"
     else:
         msg_type = ""
         image = None
@@ -121,14 +122,15 @@ class EigerZmqRxOp(Operator):
                     if "frame" in msg:
                         break
                 frame_id = msg["frame"]
-                
+                print(msg) 
                 # encoding info
                 encoding_msg = self.socket.recv()
                 encoding_msg = json.loads(encoding_msg.decode())
-
+                print(encoding_msg)
                 data_msg = self.socket.recv()
                 msg_type = "image"
                 _, image_data = decode_json_message(data_msg, encoding_msg)
+                print("got here!!!")
 
             elif self.msg_format == "cbor":
                 msg = self.socket.recv()
