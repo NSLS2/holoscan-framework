@@ -126,15 +126,12 @@ class EigerZmqRxOp(Operator):
                     if "frame" in msg:
                         break
                 frame_id = msg["frame"]
-                print(msg) 
                 # encoding info
                 encoding_msg = self.socket.recv()
                 encoding_msg = json.loads(encoding_msg.decode())
-                print(encoding_msg)
                 data_msg = self.socket.recv()
                 msg_type = "image"
                 _, image_data = decode_json_message(data_msg, encoding_msg)
-                print("got here!!!")
 
             elif self.msg_format == "cbor":
                 msg = self.socket.recv()
