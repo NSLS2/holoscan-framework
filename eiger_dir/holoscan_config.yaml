@@ -23,7 +23,7 @@ pos_rx:
   batchsize: 200
 
 img_batch_op:
-  batchsize: 200
+  batchsize: 250
 
 img_proc_op:
   # roi: [[1, 257], [1,257]]

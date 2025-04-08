@@ -252,7 +252,7 @@ class PositionRxOp(Operator):
                     final_size = size // self.upsample_factor
                     idx_start = idx_start // self.upsample_factor
                     index = np.arange(idx_start, idx_start + final_size)      
-                    print(f"{index[:10]=}")
+                    # print(f"{index[:10]=}")
                     op_output.emit(np.array([x, y]), "point")
                     op_output.emit(index, "point_index")
             except zmq.error.Again:
