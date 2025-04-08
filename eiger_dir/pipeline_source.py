@@ -18,8 +18,8 @@ from holoscan.core import Application, Operator, OperatorSpec, Tracker
 from holoscan.decorator import create_op
 from holoscan.schedulers import GreedyScheduler, MultiThreadScheduler, EventBasedScheduler
 
-supported_encodings = {"bs32-lz4<": "bslz4", "lz4<": "lz4"}
-supported_types = {"uint32": "uint32"}
+supported_encodings = {"bs32-lz4<": "bslz4", "lz4<": "lz4", "bs16-lz4<": "bs16lz4"}
+supported_types = {"uint32": "uint32", "uint16": "uint16"}
 def decode_json_message(data_msg, encoding_msg) -> tuple[str, npt.NDArray]:
     # There should be more robust way to detect this frame
     if "htype" in encoding_msg and encoding_msg["htype"] == "dimage_d-1.0":
@@ -239,9 +239,9 @@ class PositionRxOp(Operator):
                     idx_start = msg["datasets"][self.data_x_str]["starting_sample_number"]
                     size = msg["datasets"][self.data_x_str]["size"]
 
-                    x = np.reshape(x_, (size, self.upsample_factor))
+                    x = np.reshape(x_, (size // self.upsample_factor, self.upsample_factor))
                     x = np.mean(x, 1)
-                    y = np.reshape(y_, (size, self.upsample_factor))
+                    y = np.reshape(y_, (size // self.upsample_factor, self.upsample_factor))
                     y = np.mean(y, 1)
 
                     final_size = size // self.upsample_factor
