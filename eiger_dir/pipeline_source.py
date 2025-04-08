@@ -20,15 +20,12 @@ from holoscan.schedulers import GreedyScheduler, MultiThreadScheduler, EventBase
 
 supported_encodings = {"bs32-lz4<": "bslz4", "lz4<": "lz4"}
 supported_types = {"uint32": "uint32"}
-def decode_json_message(zmq_message) -> tuple[str, npt.NDArray]:
-    print(zmq_message)
-    msg = json.loads(zmq_message.decode())
-    print(msg)
+def decode_json_message(data_msg, encoding_msg) -> tuple[str, npt.NDArray]:
     # There should be more robust way to detect this frame
-    if "htype" in msg and msg["htype"] == "dimage_d-1.0":
-        data_encoding = msg.get("encoding", None)
-        data_shape = msg.get("shape", None)
-        data_type = msg.get("type", None)
+    if "htype" in encoding_msg and encoding_msg["htype"] == "dimage_d-1.0":
+        data_encoding = encoding_msg.get("encoding", None)
+        data_shape = encoding_msg.get("shape", None)
+        data_type = encoding_msg.get("type", None)
 
         data_encoding_str = supported_encodings.get(data_encoding, None)
         if not data_encoding_str:
@@ -40,7 +37,7 @@ def decode_json_message(zmq_message) -> tuple[str, npt.NDArray]:
 
         elem_type = getattr(np, data_type_str)
         elem_size = elem_type(0).nbytes
-        decompressed = decompress(msg, data_encoding_str, elem_size=elem_size)
+        decompressed = decompress(data_msg, data_encoding_str, elem_size=elem_size)
         image = np.frombuffer(decompressed, dtype=elem_type)
     else:
         msg_type = ""
@@ -114,13 +111,27 @@ class EigerZmqRxOp(Operator):
         # self.logger.info("Waiting for message")
         try:
             # Try to receive with timeout
-            msg = self.socket.recv()
+            # msg = self.socket.recv()
             # self.logger.info(f"Received message: {msg}")
             
             try:
                 if self.msg_format == "json":
-                    msg_type, image_data = decode_json_message(msg)
+                    while True:
+                        msg = self.socket.recv()
+                        msg = json.loads(msg.decode())
+                        if "frame" in msg:
+                            break
+                    frame_id = msg["frame"]
+                    
+                    # encoding info
+                    encoding_msg = self.socket.recv()
+                    encoding_msg = json.loads(encoding_msg.decode())
+
+                    data_msg = self.socket.recv()
+                    _, image_data = decode_json_message(data_msg, encoding_msg)
+
                 elif self.msg_format == "cbor":
+                    msg = self.socket.recv()
                     msg_type, image_data = decode_cbor_message(msg)
 
                 if msg_type == "image":
