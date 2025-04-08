@@ -200,6 +200,7 @@ class PositionRxOp(Operator):
                 data_y_str:str=None,
                 simulate_position_data_stream:bool=None,
                 upsample_factor:int=None,
+                batchsize:int=None,
                 **kwargs):
         self.simulate_position_data_stream = simulate_position_data_stream
         super().__init__(*args, **kwargs)
@@ -209,6 +210,7 @@ class PositionRxOp(Operator):
         self.data_x_str = data_x_str
         self.data_y_str = data_y_str
         self.upsample_factor = upsample_factor
+        self.batchsize = batchsize # not sure if this is needed
         if not self.simulate_position_data_stream:
             self.endpoint = f"tcp://{pandabox_ip}:{pandabox_port}"
             context = zmq.Context()
