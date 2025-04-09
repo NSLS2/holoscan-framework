@@ -100,7 +100,7 @@ class EigerZmqRxOp(Operator):
         
         self.endpoint = endpoint
         self.msg_format = msg_format
-        self.receive_timeout_ms = time.time()
+        self.receive_timeout_ms = [time.time()]
         # self.roi = None
         # self.simulate_position_data_stream = simulate_position_data_stream
 

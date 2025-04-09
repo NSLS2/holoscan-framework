@@ -206,7 +206,20 @@ class PtychoApp(Application):
 
         self.add_flow(self.image_send,self.pty,{("frame_ready_num","frame_ready_num")})
         self.add_flow(self.point_proc,self.pty,{("pos_ready_num","pos_ready_num")})
+
+        pool1 = self.make_thread_pool("pool1", 1)
+        pool1.add(self.eiger_zmq_rx, True)
     
+        pool2 = self.make_thread_pool("pool2", 7)
+        pool2.add(self.pos_rx, True)
+        pool2.add(self.image_batch, True)
+        pool2.add(self.image_proc, True)
+        pool2.add(self.image_send, True)
+        pool2.add(self.point_proc, True)
+        pool2.add(self.pty, True)
+        pool2.add(self.o, True)
+        
+
         # self.add_flow(self.init_recon,self.pty_ctrl,{("init","ctrl_input")})
         # self.add_flow(self.image_send,self.pty_ctrl,{("frame_ready_num","ctrl_input")})
         # self.add_flow(self.point_proc,self.pty_ctrl,{("pos_ready_num","ctrl_input")})
@@ -235,10 +248,11 @@ def main():
     
     scheduler = MultiThreadScheduler(
                 app,
-                worker_thread_number=16,
+                worker_thread_number=8,
                 check_recession_period_ms=0.001,
                 stop_on_deadlock=True,
                 stop_on_deadlock_timeout=500,
+                strict_job_thread_pinning=True,
                 name="multithread_scheduler",
             )
     app.scheduler(scheduler)
