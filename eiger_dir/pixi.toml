@@ -34,7 +34,7 @@ git = "*"
 
 
 [pypi-dependencies]
-holoscan = ">=2.9.0,<3.0.0"
+holoscan = "==3.1.*"
 dectris-compression = ">=0.3"
 matplotlib = ">=3.9"
 numba = ">=0.60"
