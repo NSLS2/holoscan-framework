@@ -100,7 +100,7 @@ class EigerZmqRxOp(Operator):
         
         self.endpoint = endpoint
         self.msg_format = msg_format
-        self.receive_timeout_ms = [time.time()]
+        self.receive_times = []
         # self.roi = None
         # self.simulate_position_data_stream = simulate_position_data_stream
 
@@ -153,8 +153,19 @@ class EigerZmqRxOp(Operator):
                 data_msg = self.socket.recv()
                 msg_type = "image"
                 _, image_data = decode_json_message(data_msg, encoding_msg)
+                self.receive_times.append(time.time())
+
+                if len(self.receive_times) > 2500:
+                    self.receive_times = np.array(self.receive_times)
+                    times_between_frames = np.diff(self.receive_times)
+                    print(f"mean time between frames: {np.mean(times_between_frames)}")
+                    print(f"median time between frames: {np.median(times_between_frames)}")
+                    print(f"std time between frames: {np.std(times_between_frames)}")
+                    print(f"min time between frames: {np.min(times_between_frames)}")
+                    print(f"max time between frames: {np.max(times_between_frames)}")
+                    
+
                 # print(f"time between image rx: {time.time() - self.receive_timeout_ms}")
-                self.receive_timeout_ms = time.time()
                 # image_data = image_data[self.roi[0, 0]:self.roi[0, 1],
                 #                         self.roi[1, 0]:self.roi[1, 1]]
             elif self.msg_format == "cbor":
