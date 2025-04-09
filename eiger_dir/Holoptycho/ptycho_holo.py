@@ -190,12 +190,13 @@ class PtychoApp(Application):
 
         self.eiger_zmq_rx = EigerZmqRxOp(self,"tcp://10.66.19.45:5559")
         self.eiger_decompress = EigerDecompressOp(self, name="eiger_decompress")
-        self.pos_rx = PositionRxOp(self,endpoint = "tcp://10.66.19.45:6666", ch1 = "/INENC2.VAL.Value", ch2 = "/INENC3.VAL.Value", upsample_factor=10)
+        self.pos_rx = PositionRxOp(self,endpoint = "tcp://10.66.19.45:6666", ch1 = "/INENC2.VAL.Value", ch2 = "/INENC3.VAL.Value", upsample_factor=10,
+                                   name="pos_rx")
 
-        self.image_batch = ImageBatchOp(self)
-        self.image_proc = ImagePreprocessorOp(self)
-        self.image_send = ImageSendOp(self)
-        self.point_proc = PointProcessorOp(self)
+        self.image_batch = ImageBatchOp(self, name="image_batch")
+        self.image_proc = ImagePreprocessorOp(self, name="image_proc")
+        self.image_send = ImageSendOp(self, name="image_send")
+        self.point_proc = PointProcessorOp(self, name="point_proc")
 
         # self.init_recon = InitRecon(self)
         self.pty = PtychoRecon(self,param=param,name='pty')
