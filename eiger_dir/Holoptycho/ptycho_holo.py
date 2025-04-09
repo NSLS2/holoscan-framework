@@ -1,6 +1,8 @@
 import logging
 from time import sleep
 
+import sys
+
 import numpy as np
 import cupy as cp
 
@@ -97,7 +99,8 @@ class PtychoRecon(Operator):
         if frame_ready_num:
             self.frame_ready_num = int(frame_ready_num)
 
-        print(f"Recv pos {self.pos_ready_num} frame {self.frame_ready_num}")
+        if self.it - self.it_last_update < 20:
+            print(f"Recv pos {self.pos_ready_num} frame {self.frame_ready_num}")
 
         ready_num = np.minimum(self.pos_ready_num,self.frame_ready_num)
 
@@ -122,18 +125,25 @@ class PtychoRecon(Operator):
             #     np.save('diff_d.npy',self.recon.diff_d.get())
             #     np.save('point_info_d.npy',self.recon.point_info_d.get())
         
-        if self.it - self.it_last_update >= 20:
+        if self.it - self.it_last_update >= 20 and self.num_points_min<np.inf:
             self.num_points_min = np.inf
             op_output.emit(self.recon.obj,"output")
+        sys.stdout.flush()
+        sys.stderr.flush()
+        
 
 @create_op(inputs="output")
 def SaveResult(output):
-    print("Done!")
+    print('Done! Saving..')
     np.save('/eiger_dir/live_test/output.npy',output)
     return
     
 
 class PtychoApp(Application):
+    def __init__(self, *args, config_path=None, **kwargs):
+        super().__init__(*args,**kwargs)
+
+        self.config_path = config_path
     def config_ops(self,param):
 
         nx_prb = self.pty.recon.nx_prb
@@ -175,7 +185,7 @@ class PtychoApp(Application):
 
     def compose(self):
 
-        param = parse_config('/eiger_dir/ptycho_holo/ptycho_config.txt')
+        param = parse_config(self.config_path)
         param.live_recon_flag = True
 
         self.eiger_zmq_rx = EigerZmqRxOp(self,"tcp://10.66.19.45:5559")
@@ -232,9 +242,13 @@ class PtychoApp(Application):
 
 
 def main():
+    if len(sys.argv) == 1: # started from GUI
+        raise NotImplementedError("No config file for Holoptycho")
+    elif len(sys.argv) == 2: # started from commandline
+        config_path = sys.argv[1]
     #config = parse_args()
 
-    app = PtychoApp()
+    app = PtychoApp(config_path=config_path)
     #app.config()
     
     # scheduler = EventBasedScheduler(

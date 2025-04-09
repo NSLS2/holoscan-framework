@@ -153,7 +153,7 @@ class EigerZmqRxOp(Operator):
                 data_msg = self.socket.recv()
                 msg_type = "image"
                 _, image_data = decode_json_message(data_msg, encoding_msg)
-                print(f"time between image rx: {time.time() - self.receive_timeout_ms}")
+                # print(f"time between image rx: {time.time() - self.receive_timeout_ms}")
                 self.receive_timeout_ms = time.time()
                 # image_data = image_data[self.roi[0, 0]:self.roi[0, 1],
                 #                         self.roi[1, 0]:self.roi[1, 1]]
