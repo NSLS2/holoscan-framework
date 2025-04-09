@@ -162,7 +162,7 @@ class EigerZmqRxOp(Operator):
                 msg_type = "image"
                 # _, image_data = decode_json_message(data_msg, encoding_msg)
                 self.receive_times.append(time.time())
-                output = (copy.deepcopy(data_msg), frame_id, copy.deepcopy(encoding_msg))
+                output = (copy.deepcopy(data_msg), copy.deepcopy(frame_id), copy.deepcopy(encoding_msg))
                 op_output.emit(output, "image_index_encoding")
                 
                 if len(self.receive_times) == 2000:
@@ -218,7 +218,7 @@ class EigerDecompressOp(Operator):
         logging.basicConfig(level=logging.INFO)
         
     def setup(self, spec: OperatorSpec):
-        spec.input("image_index_encoding").connector(IOSpec.ConnectorType.DOUBLE_BUFFER, capacity=256)
+        spec.input("image_index_encoding").connector(IOSpec.ConnectorType.DOUBLE_BUFFER, capacity=500)
         
         spec.output("decompressed_image")#.condition(ConditionType.NONE)
         spec.output("image_index")#.condition(ConditionType.NONE)
