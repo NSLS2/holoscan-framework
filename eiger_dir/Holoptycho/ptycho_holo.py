@@ -189,7 +189,6 @@ class PtychoApp(Application):
         param.live_recon_flag = True
 
         self.eiger_zmq_rx = EigerZmqRxOp(self,"tcp://10.66.19.45:5559")
-
         self.pos_rx = PositionRxOp(self,endpoint = "tcp://10.66.19.45:6666", ch1 = "/INENC2.VAL.Value", ch2 = "/INENC3.VAL.Value", upsample_factor=10)
 
         self.image_batch = ImageBatchOp(self)
