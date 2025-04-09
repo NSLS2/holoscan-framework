@@ -39,6 +39,7 @@ def decode_json_message(data_msg, encoding_msg) -> tuple[str, npt.NDArray]:
 
         elem_type = getattr(np, data_type_str)
         elem_size = elem_type(0).nbytes
+        print(f"data_msg: {data_msg}")
         decompressed = decompress(data_msg, data_encoding_str, elem_size=elem_size)
         image = np.frombuffer(decompressed, dtype=elem_type)
         image = image.reshape(data_shape[1], data_shape[0])
