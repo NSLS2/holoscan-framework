@@ -155,7 +155,7 @@ class EigerZmqRxOp(Operator):
                 _, image_data = decode_json_message(data_msg, encoding_msg)
                 self.receive_times.append(time.time())
 
-                if len(self.receive_times) >= 2500:
+                if len(self.receive_times) == 2000:
                     self.receive_times = np.array(self.receive_times)
                     times_between_frames = np.diff(self.receive_times)
                     print(f"mean time between frames: {np.mean(times_between_frames)}")
