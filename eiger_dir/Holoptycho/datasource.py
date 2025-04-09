@@ -146,8 +146,8 @@ class EigerZmqRxOp(Operator):
                     if "frame" in msg:
                         break
                 frame_id = msg["frame"]
-                # if frame_id - self.frame_id_last > 1:
-                #     print("Lost frame between id",self.frame_id_last,frame_id)
+                if frame_id - self.frame_id_last > 1:
+                    print("Lost frame between id",self.frame_id_last,frame_id)
                 self.frame_id_last = frame_id
                 # encoding info
                 encoding_msg = self.socket.recv()
