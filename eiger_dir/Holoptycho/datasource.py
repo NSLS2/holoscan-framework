@@ -13,6 +13,7 @@ import traceback
 import h5py
 import time
 
+import copy
 from dectris.compression import decompress
 
 from holoscan.core import Application, Operator, OperatorSpec, Tracker, ConditionType, IOSpec
@@ -155,7 +156,7 @@ class EigerZmqRxOp(Operator):
                 msg_type = "image"
                 # _, image_data = decode_json_message(data_msg, encoding_msg)
                 self.receive_times.append(time.time())
-                output = (data_msg, frame_id, encoding_msg)
+                output = (copy.deepcopy(data_msg), frame_id, copy.deepcopy(encoding_msg))
                 op_output.emit(output, "image_index_encoding")
 
                 if len(self.receive_times) == 2000:
