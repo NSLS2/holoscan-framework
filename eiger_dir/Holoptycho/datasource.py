@@ -2,7 +2,7 @@ import logging
 import socket
 import zmq
 from argparse import ArgumentParser
-
+import sys
 import numpy as np
 import numpy.typing as npt
 import cupy as cp
@@ -20,9 +20,14 @@ from holoscan.core import Application, Operator, OperatorSpec, Tracker, Conditio
 from holoscan.decorator import create_op
 from holoscan.schedulers import GreedyScheduler, MultiThreadScheduler, EventBasedScheduler
 
+def std_err_print(msg):
+    sys.stderr.write(msg+"\n")
+
+
 supported_encodings = {"bs32-lz4<": "bslz4", "lz4<": "lz4", "bs16-lz4<": "bslz4"}
 supported_types = {"uint32": "uint32", "uint16": "uint16"}
 def decode_json_message(data_msg, encoding_msg) -> tuple[str, npt.NDArray]:
+    std_err_print("DECODING THE MESSAGE")
     # There should be more robust way to detect this frame
     if "htype" in encoding_msg and encoding_msg["htype"] == "dimage_d-1.0":
         data_encoding = encoding_msg.get("encoding", None)
@@ -39,7 +44,7 @@ def decode_json_message(data_msg, encoding_msg) -> tuple[str, npt.NDArray]:
 
         elem_type = getattr(np, data_type_str)
         elem_size = elem_type(0).nbytes
-        print(f"data_msg: {data_msg}")
+        std_err_print(f"data_msg: {data_msg}")
         decompressed = decompress(data_msg, data_encoding_str, elem_size=elem_size)
         image = np.frombuffer(decompressed, dtype=elem_type)
         image = image.reshape(data_shape[1], data_shape[0])
@@ -148,7 +153,7 @@ class EigerZmqRxOp(Operator):
                         break
                 frame_id = msg["frame"]
                 if frame_id - self.frame_id_last > 1:
-                    print("Lost frame between id",self.frame_id_last,frame_id)
+                    std_err_print("Lost frame between id",self.frame_id_last,frame_id)
                 self.frame_id_last = frame_id
                 # encoding info
                 encoding_msg = self.socket.recv()
@@ -164,14 +169,14 @@ class EigerZmqRxOp(Operator):
                 if len(self.receive_times) == 2000:
                     _receive_times = np.array(self.receive_times)
                     times_between_frames = np.diff(_receive_times)
-                    print(f"mean time between frames: {np.mean(times_between_frames)}")
-                    print(f"median time between frames: {np.median(times_between_frames)}")
-                    print(f"std time between frames: {np.std(times_between_frames)}")
-                    print(f"min time between frames: {np.min(times_between_frames)}")
-                    print(f"max time between frames: {np.max(times_between_frames)}")
+                    std_err_print(f"mean time between frames: {np.mean(times_between_frames)}")
+                    std_err_print(f"median time between frames: {np.median(times_between_frames)}")
+                    std_err_print(f"std time between frames: {np.std(times_between_frames)}")
+                    std_err_print(f"min time between frames: {np.min(times_between_frames)}")
+                    std_err_print(f"max time between frames: {np.max(times_between_frames)}")
                     
 
-                # print(f"time between image rx: {time.time() - self.receive_timeout_ms}")
+                # std_err_print(f"time between image rx: {time.time() - self.receive_timeout_ms}")
                 # image_data = image_data[self.roi[0, 0]:self.roi[0, 1],
                 #                         self.roi[1, 0]:self.roi[1, 1]]
             elif self.msg_format == "cbor":
@@ -188,8 +193,8 @@ class EigerZmqRxOp(Operator):
 
             # except Exception as ex:
             #     result = "ERROR: Failed to process message: {ex}"
-            #     print(f"{pprint.pformat(result)}")
-            #     print(traceback.format_exc())
+            #     std_err_print(f"{pprint.pformat(result)}")
+            #     std_err_print(traceback.format_exc())
                 
         except zmq.error.Again:
             # Timeout occurred
@@ -217,7 +222,7 @@ class EigerDecompressOp(Operator):
         
     def compute(self, op_input, op_output, context):
         compressed_image, image_index, encoding_msg = op_input.receive("image_index_encoding")
-        decompressed_image = decompress(compressed_image, encoding_msg)
+        decompressed_image = decode_json_message(compressed_image, encoding_msg)
         op_output.emit(decompressed_image, "decompressed_image")
         op_output.emit(image_index, "image_index")
 
@@ -270,7 +275,7 @@ class PositionRxOp(Operator):
                 # final_size = size // self.upsample_factor
                 # idx_start = idx_start // self.upsample_factor
                 # index = np.arange(idx_start, idx_start + final_size)      
-                # print(f"{index[:10]=}")
+                # std_err_print(f"{index[:10]=}")
                 op_output.emit((frame_number,np.array([x, y])), "pointRx_out")
         except zmq.error.Again:
         # Timeout occurred
