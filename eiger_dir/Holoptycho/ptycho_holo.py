@@ -70,21 +70,41 @@ class PtychoRecon(Operator):
         self.num_points_min = 200
         self.it = 0
         self.it_last_update = np.inf
+        self.pos_ready_num = 0
+        self.frame_ready_num = 0
 
 
 
     def setup(self,spec):
-        #spec.input("pos_ready_num",policy=IOSpec.QueuePolicy.POP).condition(ConditionType.NONE)
-        spec.input("ready_num")
-        spec.output("ctrl")
+        spec.input("pos_ready_num",policy=IOSpec.QueuePolicy.POP).condition(ConditionType.NONE)
+        spec.input("frame_ready_num",policy=IOSpec.QueuePolicy.POP).condition(ConditionType.NONE)
+        #spec.input("ready_num")
         spec.output("output").condition(ConditionType.NONE)
 
     def compute(self,op_input,op_output,context):
 
-        ready_num = op_input.receive("ready_num")
+        # ready_num = op_input.receive("ready_num")
 
-        self.recon.num_points_recon = int(ready_num)
+        # self.recon.num_points_recon = int(ready_num)
 
+        pos_ready_num = op_input.receive("pos_ready_num")
+
+        if pos_ready_num:
+            self.pos_ready_num = int(pos_ready_num)
+
+        frame_ready_num = op_input.receive("frame_ready_num")
+
+        if frame_ready_num:
+            self.frame_ready_num = int(frame_ready_num)
+
+        print(f"Recv pos {self.pos_ready_num} frame {self.frame_ready_num}")
+
+        ready_num = np.minimum(self.pos_ready_num,self.frame_ready_num)
+
+        if ready_num > self.recon.num_points_recon:
+            self.recon.num_points_recon = ready_num
+            self.it_last_update = self.it
+        
         if self.recon.num_points_recon > self.num_points_min:
             # Maybe not?
             self.recon.live_update_plan_last()
@@ -92,10 +112,8 @@ class PtychoRecon(Operator):
             self.recon.one_iter(self.it)
             self.it += 1
 
-            if self.it_last_update == np.inf and self.recon.num_points_recon == self.recon.num_points:
-                self.it_last_update = self.it
         else:
-            sleep(2)
+            sleep(0.2)
 
 
             # #save
@@ -104,11 +122,9 @@ class PtychoRecon(Operator):
             #     np.save('diff_d.npy',self.recon.diff_d.get())
             #     np.save('point_info_d.npy',self.recon.point_info_d.get())
         
-        if self.it - self.it_last_update >= 10:
+        if self.it - self.it_last_update >= 20:
             self.num_points_min = np.inf
             op_output.emit(self.recon.obj,"output")
-        
-        op_output.emit(None,"ctrl")
 
 @create_op(inputs="output")
 def SaveResult(output):
@@ -124,11 +140,10 @@ class PtychoApp(Application):
         ny_prb = self.pty.recon.ny_prb
         nz = 2500
 
-        batchsize = 100
+        batchsize = 250
         min_points = 200
 
-        self.eiger_zmq_rx.roi = np.array([[644, 900], [525, 781]])
-
+        self.image_batch.roi = np.array([[644, 900], [525, 781]])
         self.image_batch.batchsize = batchsize
         self.image_batch.nx_prb = nx_prb
         self.image_batch.ny_prb = ny_prb
@@ -172,9 +187,9 @@ class PtychoApp(Application):
         self.image_send = ImageSendOp(self)
         self.point_proc = PointProcessorOp(self)
 
-        self.init_recon = InitRecon(self)
+        # self.init_recon = InitRecon(self)
         self.pty = PtychoRecon(self,param=param,name='pty')
-        self.pty_ctrl = PtychoCtrl(self)
+        # self.pty_ctrl = PtychoCtrl(self)
 
         # Temp
         self.o = SaveResult(self,name='out')
@@ -188,12 +203,15 @@ class PtychoApp(Application):
         
         self.add_flow(self.pos_rx,self.point_proc,{("pointRx_out","pointOp_in")})
         self.add_flow(self.image_send,self.point_proc,{("image_indices_out","pointOp_in")})
+
+        self.add_flow(self.image_send,self.pty,{("frame_ready_num","frame_ready_num")})
+        self.add_flow(self.point_proc,self.pty,{("pos_ready_num","pos_ready_num")})
     
-        self.add_flow(self.init_recon,self.pty_ctrl,{("init","ctrl_input")})
-        self.add_flow(self.image_send,self.pty_ctrl,{("frame_ready_num","ctrl_input")})
-        self.add_flow(self.point_proc,self.pty_ctrl,{("pos_ready_num","ctrl_input")})
-        self.add_flow(self.pty_ctrl,self.pty,{("ready_num","ready_num")})
-        self.add_flow(self.pty,self.pty_ctrl,{("ctrl","ctrl_input")})
+        # self.add_flow(self.init_recon,self.pty_ctrl,{("init","ctrl_input")})
+        # self.add_flow(self.image_send,self.pty_ctrl,{("frame_ready_num","ctrl_input")})
+        # self.add_flow(self.point_proc,self.pty_ctrl,{("pos_ready_num","ctrl_input")})
+        # self.add_flow(self.pty_ctrl,self.pty,{("ready_num","ready_num")})
+        # self.add_flow(self.pty,self.pty_ctrl,{("ctrl","ctrl_input")})
 
 
 
@@ -217,7 +235,7 @@ def main():
     
     scheduler = MultiThreadScheduler(
                 app,
-                worker_thread_number=20,
+                worker_thread_number=16,
                 check_recession_period_ms=0.001,
                 stop_on_deadlock=True,
                 stop_on_deadlock_timeout=500,

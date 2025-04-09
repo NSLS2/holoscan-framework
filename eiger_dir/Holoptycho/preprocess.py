@@ -22,14 +22,17 @@ class ImageBatchOp(Operator):
         self.indices_to_add = None #np.zeros(self.batchsize, dtype=np.int32)
 
     def setup(self, spec: OperatorSpec):
-        spec.input("image").connector(IOSpec.ConnectorType.DOUBLE_BUFFER, capacity=32)
-        spec.input("image_index").connector(IOSpec.ConnectorType.DOUBLE_BUFFER, capacity=32)
+        spec.input("image").connector(IOSpec.ConnectorType.DOUBLE_BUFFER, capacity=256)
+        spec.input("image_index").connector(IOSpec.ConnectorType.DOUBLE_BUFFER, capacity=256)
         spec.output("image_batch")
         spec.output("image_indices")
         
     def compute(self, op_input, op_output, context):
         image = op_input.receive("image")
         image_index = op_input.receive("image_index")
+
+        image = image[self.roi[0, 0]:self.roi[0, 1],
+                    self.roi[1, 0]:self.roi[1, 1]]
         
         self.images_to_add[self.counter, :, :] = image
         self.indices_to_add[self.counter] = image_index
@@ -201,7 +204,7 @@ class PointProcessorOp(Operator):
             self.frame_id_list = np.concatenate((self.frame_id_list,data),axis=0)
 
         self.send_points_to_recon()
-        op_output.emit(('pos',self.pos_ready_num),"pos_ready_num")
+        op_output.emit(self.pos_ready_num,"pos_ready_num")
 
 class ImageSendOp(Operator):
     def __init__(self,*args,**kwargs):
@@ -215,8 +218,8 @@ class ImageSendOp(Operator):
     def setup(self, spec: OperatorSpec):
         spec.input("diff_amp").connector(IOSpec.ConnectorType.DOUBLE_BUFFER, capacity=32)
         spec.input("image_indices").connector(IOSpec.ConnectorType.DOUBLE_BUFFER, capacity=32)
-        spec.output("frame_ready_num")
-        spec.output("image_indices_out")
+        spec.output("frame_ready_num").condition(ConditionType.NONE)
+        spec.output("image_indices_out").condition(ConditionType.NONE)
 
     def compute(self, op_input, op_output, context):
         diff_d = op_input.receive("diff_amp")
@@ -230,4 +233,4 @@ class ImageSendOp(Operator):
         cp.cuda.runtime.memcpy(diff_d_target.data.ptr,diff_d.ctypes.data,diff_d.nbytes,cp.cuda.runtime.memcpyHostToDevice)
 
         op_output.emit(indices,"image_indices_out")
-        op_output.emit(('frame',self.frame_ready_num),"frame_ready_num")
+        op_output.emit(self.frame_ready_num,"frame_ready_num")

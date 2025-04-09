@@ -94,7 +94,7 @@ def parse_args():
     return config
 
 class EigerZmqRxOp(Operator):
-    def __init__(self, fragment, endpoint = "" , msg_format = "json", receive_timeout_ms = 1000, *args,**kwargs):
+    def __init__(self, fragment, endpoint = "" , msg_format = "json", receive_timeout_ms = 100, *args,**kwargs):
         super().__init__(fragment, *args,**kwargs)
         
         self.endpoint = endpoint
@@ -119,10 +119,12 @@ class EigerZmqRxOp(Operator):
         self.logger = logging.getLogger("EigerZmqRxOp")
         logging.basicConfig(level=logging.INFO)
 
+        self.frame_id_last = -1
+
     def setup(self, spec: OperatorSpec):
         spec.input("flush").condition(ConditionType.NONE)
-        spec.output("image")
-        spec.output("image_index")
+        spec.output("image").condition(ConditionType.NONE)
+        spec.output("image_index").condition(ConditionType.NONE)
 
     def compute(self, op_input, op_output, context):
         # self.logger.info("Waiting for message")
@@ -141,14 +143,17 @@ class EigerZmqRxOp(Operator):
                     if "frame" in msg:
                         break
                 frame_id = msg["frame"]
+                if frame_id - self.frame_id_last > 1:
+                    print("Lost frame between",self.frame_id_last,frame_id)
+                self.frame_id_last = frame_id
                 # encoding info
                 encoding_msg = self.socket.recv()
                 encoding_msg = json.loads(encoding_msg.decode())
                 data_msg = self.socket.recv()
                 msg_type = "image"
                 _, image_data = decode_json_message(data_msg, encoding_msg)
-                image_data = image_data[self.roi[0, 0]:self.roi[0, 1],
-                                        self.roi[1, 0]:self.roi[1, 1]]
+                # image_data = image_data[self.roi[0, 0]:self.roi[0, 1],
+                #                         self.roi[1, 0]:self.roi[1, 1]]
             elif self.msg_format == "cbor":
                 msg = self.socket.recv()
                 msg_type, image_data = decode_cbor_message(msg)
@@ -181,7 +186,7 @@ class EigerZmqRxOp(Operator):
 class PositionRxOp(Operator):
     def __init__(self, *args,
                 endpoint:str=None,
-                receive_timeout_ms:int=1000,
+                receive_timeout_ms:int=100,
                 ch1:str=None,
                 ch2:str=None,
                 upsample_factor:int=None,
