@@ -164,8 +164,7 @@ class EigerZmqRxOp(Operator):
                 self.receive_times.append(time.time())
                 output = (copy.deepcopy(data_msg), frame_id, copy.deepcopy(encoding_msg))
                 op_output.emit(output, "image_index_encoding")
-                return
-
+                
                 if len(self.receive_times) == 2000:
                     _receive_times = np.array(self.receive_times)
                     times_between_frames = np.diff(_receive_times)
@@ -174,6 +173,10 @@ class EigerZmqRxOp(Operator):
                     std_err_print(f"std time between frames: {np.std(times_between_frames)}")
                     std_err_print(f"min time between frames: {np.min(times_between_frames)}")
                     std_err_print(f"max time between frames: {np.max(times_between_frames)}")
+                
+                
+                return
+
                     
 
                 # std_err_print(f"time between image rx: {time.time() - self.receive_timeout_ms}")
