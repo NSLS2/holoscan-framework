@@ -15,7 +15,7 @@ import time
 
 from dectris.compression import decompress
 
-from holoscan.core import Application, Operator, OperatorSpec, Tracker, ConditionType
+from holoscan.core import Application, Operator, OperatorSpec, Tracker, ConditionType, IOSpec
 from holoscan.decorator import create_op
 from holoscan.schedulers import GreedyScheduler, MultiThreadScheduler, EventBasedScheduler
 
@@ -124,9 +124,10 @@ class EigerZmqRxOp(Operator):
 
     def setup(self, spec: OperatorSpec):
         spec.input("flush").condition(ConditionType.NONE)
-        spec.output("image").condition(ConditionType.NONE)
-        spec.output("image_index").condition(ConditionType.NONE)
-
+        # spec.output("image").condition(ConditionType.NONE)
+        # spec.output("image_index").condition(ConditionType.NONE)
+        spec.output("image_index_encoding").condition(ConditionType.NONE)
+    
     def compute(self, op_input, op_output, context):
         # self.logger.info("Waiting for message")
         try:
@@ -152,8 +153,10 @@ class EigerZmqRxOp(Operator):
                 encoding_msg = json.loads(encoding_msg.decode())
                 data_msg = self.socket.recv()
                 msg_type = "image"
-                _, image_data = decode_json_message(data_msg, encoding_msg)
+                # _, image_data = decode_json_message(data_msg, encoding_msg)
                 self.receive_times.append(time.time())
+                output = (data_msg, frame_id, encoding_msg)
+                op_output.emit(output, "image_index_encoding")
 
                 if len(self.receive_times) == 2000:
                     _receive_times = np.array(self.receive_times)
@@ -195,6 +198,25 @@ class EigerZmqRxOp(Operator):
         """Cleanup socket on deletion"""
         if hasattr(self, 'socket'):
             self.socket.close()
+
+
+class EigerDecompressOp(Operator):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.logger = logging.getLogger("EigerDecompressOp")
+        logging.basicConfig(level=logging.INFO)
+        
+    def setup(self, spec: OperatorSpec):
+        spec.input("image_index_encoding").connector(IOSpec.ConnectorType.DOUBLE_BUFFER, capacity=256)
+        
+        spec.output("decompressed_image").condition(ConditionType.NONE)
+        spec.output("image_index").condition(ConditionType.NONE)
+        
+    def compute(self, op_input, op_output, context):
+        compressed_image, image_index, encoding_msg = op_input.receive("image_index_encoding")
+        decompressed_image = decompress(compressed_image, encoding_msg)
+        op_output.emit(decompressed_image, "decompressed_image")
+        op_output.emit(image_index, "image_index")
 
 
 class PositionRxOp(Operator):

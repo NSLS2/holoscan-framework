@@ -19,7 +19,7 @@ from holoscan.schedulers import GreedyScheduler, MultiThreadScheduler, EventBase
 from holoscan.logger import LogLevel, set_log_level
 from holoscan.decorator import create_op
 
-from .datasource import parse_args, EigerZmqRxOp, PositionRxOp
+from .datasource import parse_args, EigerZmqRxOp, PositionRxOp, EigerDecompressOp
 from .preprocess import ImageBatchOp, ImagePreprocessorOp, PointProcessorOp, ImageSendOp
 
 
@@ -189,6 +189,7 @@ class PtychoApp(Application):
         param.live_recon_flag = True
 
         self.eiger_zmq_rx = EigerZmqRxOp(self,"tcp://10.66.19.45:5559")
+        self.eiger_decompress = EigerDecompressOp(self)
         self.pos_rx = PositionRxOp(self,endpoint = "tcp://10.66.19.45:6666", ch1 = "/INENC2.VAL.Value", ch2 = "/INENC3.VAL.Value", upsample_factor=10)
 
         self.image_batch = ImageBatchOp(self)
@@ -206,7 +207,8 @@ class PtychoApp(Application):
         self.config_ops(param)
 
 
-        self.add_flow(self.eiger_zmq_rx,self.image_batch,{("image","image"),("image_index","image_index")})
+        self.add_flow(self.eiger_zmq_rx,self.eiger_decompress,{("image_index_encoding","image_index_encoding")})
+        self.add_flow(self.eiger_decompress,self.image_batch,{("decompressed_image","image"),("image_index","image_index")})
         self.add_flow(self.image_batch,self.image_proc,{("image_batch","image_batch"),("image_indices","image_indices_in")})
         self.add_flow(self.image_proc,self.image_send,{("diff_amp","diff_amp"),("image_indices","image_indices")})
         
