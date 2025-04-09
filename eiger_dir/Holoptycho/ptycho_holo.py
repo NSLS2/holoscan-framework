@@ -69,7 +69,7 @@ class PtychoRecon(Operator):
         self.recon, rank = recon_gui(param)
         self.recon.setup()
 
-        self.num_points_min = 200
+        self.num_points_min = 100
         self.it = 0
         self.it_last_update = np.inf
         self.pos_ready_num = 0

@@ -218,7 +218,7 @@ class EigerDecompressOp(Operator):
         logging.basicConfig(level=logging.INFO)
         
     def setup(self, spec: OperatorSpec):
-        spec.input("image_index_encoding").connector(IOSpec.ConnectorType.DOUBLE_BUFFER, capacity=500)
+        spec.input("image_index_encoding").connector(IOSpec.ConnectorType.DOUBLE_BUFFER, capacity=2500)
         
         spec.output("decompressed_image")#.condition(ConditionType.NONE)
         spec.output("image_index")#.condition(ConditionType.NONE)
