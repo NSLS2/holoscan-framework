@@ -27,7 +27,7 @@ def std_err_print(msg):
 supported_encodings = {"bs32-lz4<": "bslz4", "lz4<": "lz4", "bs16-lz4<": "bslz4"}
 supported_types = {"uint32": "uint32", "uint16": "uint16"}
 def decode_json_message(data_msg, encoding_msg) -> tuple[str, npt.NDArray]:
-    std_err_print("DECODING THE MESSAGE")
+    # std_err_print("DECODING THE MESSAGE")
     # There should be more robust way to detect this frame
     if "htype" in encoding_msg and encoding_msg["htype"] == "dimage_d-1.0":
         data_encoding = encoding_msg.get("encoding", None)
@@ -44,7 +44,7 @@ def decode_json_message(data_msg, encoding_msg) -> tuple[str, npt.NDArray]:
 
         elem_type = getattr(np, data_type_str)
         elem_size = elem_type(0).nbytes
-        std_err_print(f"data_msg: {data_msg}")
+        # std_err_print(f"data_msg: {data_msg}")
         decompressed = decompress(data_msg, data_encoding_str, elem_size=elem_size)
         image = np.frombuffer(decompressed, dtype=elem_type)
         image = image.reshape(data_shape[1], data_shape[0])
@@ -217,8 +217,8 @@ class EigerDecompressOp(Operator):
     def setup(self, spec: OperatorSpec):
         spec.input("image_index_encoding").connector(IOSpec.ConnectorType.DOUBLE_BUFFER, capacity=256)
         
-        spec.output("decompressed_image").condition(ConditionType.NONE)
-        spec.output("image_index").condition(ConditionType.NONE)
+        spec.output("decompressed_image")#.condition(ConditionType.NONE)
+        spec.output("image_index")#.condition(ConditionType.NONE)
         
     def compute(self, op_input, op_output, context):
         compressed_image, image_index, encoding_msg = op_input.receive("image_index_encoding")
