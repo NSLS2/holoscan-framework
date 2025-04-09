@@ -188,7 +188,7 @@ class PtychoApp(Application):
         param = parse_config(self.config_path)
         param.live_recon_flag = True
 
-        self.eiger_zmq_rx = EigerZmqRxOp(self,"tcp://10.66.19.45:5559")
+        self.eiger_zmq_rx = EigerZmqRxOp(self,"tcp://10.66.19.45:5559", name="eiger_zmq_rx")
         self.eiger_decompress = EigerDecompressOp(self, name="eiger_decompress")
         self.pos_rx = PositionRxOp(self,endpoint = "tcp://10.66.19.45:6666", ch1 = "/INENC2.VAL.Value", ch2 = "/INENC3.VAL.Value", upsample_factor=10,
                                    name="pos_rx")
