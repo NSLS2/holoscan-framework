@@ -158,6 +158,7 @@ class EigerZmqRxOp(Operator):
                 self.receive_times.append(time.time())
                 output = (copy.deepcopy(data_msg), frame_id, copy.deepcopy(encoding_msg))
                 op_output.emit(output, "image_index_encoding")
+                return
 
                 if len(self.receive_times) == 2000:
                     _receive_times = np.array(self.receive_times)
