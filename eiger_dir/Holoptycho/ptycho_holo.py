@@ -264,7 +264,7 @@ def main():
     
     scheduler = MultiThreadScheduler(
                 app,
-                worker_thread_number=8,
+                worker_thread_number=9,
                 check_recession_period_ms=0.001,
                 stop_on_deadlock=True,
                 stop_on_deadlock_timeout=500,

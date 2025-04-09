@@ -107,7 +107,7 @@ class EigerZmqRxOp(Operator):
         
         self.endpoint = endpoint
         self.msg_format = msg_format
-        self.receive_times = []
+        # self.receive_times = []
         # self.roi = None
         # self.simulate_position_data_stream = simulate_position_data_stream
 
@@ -161,18 +161,18 @@ class EigerZmqRxOp(Operator):
                 data_msg = self.socket.recv()
                 msg_type = "image"
                 # _, image_data = decode_json_message(data_msg, encoding_msg)
-                self.receive_times.append(time.time())
+                # self.receive_times.append(time.time())
                 output = (copy.deepcopy(data_msg), copy.deepcopy(frame_id), copy.deepcopy(encoding_msg))
                 op_output.emit(output, "image_index_encoding")
                 
-                if len(self.receive_times) == 2000:
-                    _receive_times = np.array(self.receive_times)
-                    times_between_frames = np.diff(_receive_times)
-                    std_err_print(f"mean time between frames: {np.mean(times_between_frames)}")
-                    std_err_print(f"median time between frames: {np.median(times_between_frames)}")
-                    std_err_print(f"std time between frames: {np.std(times_between_frames)}")
-                    std_err_print(f"min time between frames: {np.min(times_between_frames)}")
-                    std_err_print(f"max time between frames: {np.max(times_between_frames)}")
+                # if len(self.receive_times) == 2000:
+                #     _receive_times = np.array(self.receive_times)
+                #     times_between_frames = np.diff(_receive_times)
+                #     std_err_print(f"mean time between frames: {np.mean(times_between_frames)}")
+                #     std_err_print(f"median time between frames: {np.median(times_between_frames)}")
+                #     std_err_print(f"std time between frames: {np.std(times_between_frames)}")
+                #     std_err_print(f"min time between frames: {np.min(times_between_frames)}")
+                #     std_err_print(f"max time between frames: {np.max(times_between_frames)}")
                 
                 
                 return
