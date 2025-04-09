@@ -156,8 +156,8 @@ class EigerZmqRxOp(Operator):
                 self.receive_times.append(time.time())
 
                 if len(self.receive_times) == 2000:
-                    self.receive_times = np.array(self.receive_times)
-                    times_between_frames = np.diff(self.receive_times)
+                    _receive_times = np.array(self.receive_times)
+                    times_between_frames = np.diff(_receive_times)
                     print(f"mean time between frames: {np.mean(times_between_frames)}")
                     print(f"median time between frames: {np.median(times_between_frames)}")
                     print(f"std time between frames: {np.std(times_between_frames)}")
