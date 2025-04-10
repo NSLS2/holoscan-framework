@@ -1,4 +1,5 @@
 import logging
+import sys
 
 import numpy as np
 import cupy as cp
@@ -15,19 +16,28 @@ class ImageBatchOp(Operator):
         logging.basicConfig(level=logging.INFO)
         self.counter = 0
 
-        self.batchsize = 10
+        self.batchsize = 0
         self.nx_prb = 0
         self.ny_prb = 0
         self.images_to_add = None #np.zeros((self.batchsize, 256, 256))
         self.indices_to_add = None #np.zeros(self.batchsize, dtype=np.int32)
 
+    def flush(self,param):
+        self.count = 0
+        self.roi = np.array(param)
+        
     def setup(self, spec: OperatorSpec):
+        spec.input("flush",policy=IOSpec.QueuePolicy.POP).condition(ConditionType.NONE)
         spec.input("image").connector(IOSpec.ConnectorType.DOUBLE_BUFFER, capacity=256)
         spec.input("image_index").connector(IOSpec.ConnectorType.DOUBLE_BUFFER, capacity=256)
         spec.output("image_batch")
         spec.output("image_indices")
         
     def compute(self, op_input, op_output, context):
+        param = op_input.receive('flush')
+        if param:
+            self.flush(param)
+
         image = op_input.receive("image")
         image_index = op_input.receive("image_index")
 
@@ -96,7 +106,7 @@ class PointProcessorOp(Operator):
         self.raw_data = np.zeros((2,0),dtype = np.int32)
         self.frame_id_list = np.zeros((0,),dtype = np.int32)
 
-        self.next_frame_number = 0
+        self.next_pack_frame_number = 0
         self.raw_data_pointer = 0
 
         self.pos_loaded_num = 0
@@ -104,6 +114,7 @@ class PointProcessorOp(Operator):
 
         # Hardcode
         self.min_points = 200
+        self.max_points = 20000
         self.x_direction = -1.
         self.y_direction = -1.
         self.pos_x_base = None
@@ -115,17 +126,42 @@ class PointProcessorOp(Operator):
         self.nx_prb = 256
         self.ny_prb = 256
         self.obj_pad = 30
+        self.x_ratio = 0
+        self.y_ratio = 0
+
+    def flush(self,param):
+        self.buffer = []
+        self.raw_data = np.zeros((2,0),dtype = np.int32)
+        self.frame_id_list = np.zeros((0,),dtype = np.int32)
+
+        self.next_pack_frame_number = 0
+        self.raw_data_pointer = 0
+
+        self.pos_loaded_num = 0
+        self.pos_ready_num = 0
         
+        self.pos_x_base = None
+        self.pos_y_base = None
+
+        self.x_range_um = param[0]
+        self.y_range_um = param[1]
+
+        self.x_ratio = param[2]
+        self.y_ratio = param[3]
+
+        self.min_points = param[4]
+
         
     def setup(self, spec: OperatorSpec):
+        spec.input("flush",policy=IOSpec.QueuePolicy.POP).condition(ConditionType.NONE)
         spec.input("pointOp_in").connector(IOSpec.ConnectorType.DOUBLE_BUFFER, capacity=32)
         spec.output("pos_ready_num").condition(ConditionType.NONE)
     
     def search_next_frame_in_buffer(self):
         for ind,data in enumerate(self.buffer):
-            if data[0] == self.next_frame_number:
+            if data[0] == self.next_pack_frame_number:
                 self.raw_data = np.concatenate((self.raw_data,data[1]),axis=1)
-                self.next_frame_number += 1
+                self.next_pack_frame_number += 1
                 self.buffer.pop(ind)
                 return True
         return False
@@ -172,7 +208,7 @@ class PointProcessorOp(Operator):
     def send_points_to_recon(self):
         for i in range(self.pos_ready_num,self.frame_id_list.shape[0]):
             # print('loaded', self.pos_loaded_num)
-            if self.pos_loaded_num > self.frame_id_list[i]:
+            if self.pos_loaded_num > self.frame_id_list[i] and self.pos_ready_num < self.max_points:
                 fid = self.frame_id_list[i]
                 self.point_info_target[self.pos_ready_num,:] = cp.array(self.point_info[fid,:],\
                                                                         dtype = np.int32, order='C')
@@ -182,15 +218,20 @@ class PointProcessorOp(Operator):
 
 
     def compute(self, op_input, op_output, context):
+
+        param = op_input.receive('flush')
+        if param:
+            self.flush(param)
+
         data = op_input.receive("pointOp_in")
 
         # Ugly hack
         if isinstance(data,tuple):
             # received raw panda data
-            if data[0] == self.next_frame_number:
+            if data[0] == self.next_pack_frame_number:
                 #concat right away
                 self.raw_data = np.concatenate((self.raw_data,data[1]),axis=1)
-                self.next_frame_number += 1
+                self.next_pack_frame_number += 1
             else:
                 # store in buffer
                 self.buffer.append(data)
@@ -213,24 +254,34 @@ class ImageSendOp(Operator):
         logging.basicConfig(level=logging.INFO)
 
         self.diff_d_target = None
+        self.max_points = 20000
+        self.frame_ready_num = 0
+    
+    def flush(self,param):
         self.frame_ready_num = 0
     
     def setup(self, spec: OperatorSpec):
+        spec.input("flush",policy=IOSpec.QueuePolicy.POP).condition(ConditionType.NONE)
         spec.input("diff_amp").connector(IOSpec.ConnectorType.DOUBLE_BUFFER, capacity=32)
         spec.input("image_indices").connector(IOSpec.ConnectorType.DOUBLE_BUFFER, capacity=32)
         spec.output("frame_ready_num").condition(ConditionType.NONE)
         spec.output("image_indices_out").condition(ConditionType.NONE)
 
     def compute(self, op_input, op_output, context):
+        param = op_input.receive('flush')
+        if param:
+            self.flush(param)
+
         diff_d = op_input.receive("diff_amp")
         indices = op_input.receive("image_indices")
 
         nframe = diff_d.shape[0]
 
-        diff_d_target = self.diff_d_target[self.frame_ready_num:self.frame_ready_num+nframe]
-        self.frame_ready_num += nframe
-        
-        cp.cuda.runtime.memcpy(diff_d_target.data.ptr,diff_d.ctypes.data,diff_d.nbytes,cp.cuda.runtime.memcpyHostToDevice)
+        if (self.frame_ready_num + nframe) < self.max_points:
+            diff_d_target = self.diff_d_target[self.frame_ready_num:self.frame_ready_num+nframe]
+            self.frame_ready_num += nframe
+            
+            cp.cuda.runtime.memcpy(diff_d_target.data.ptr,diff_d.ctypes.data,diff_d.nbytes,cp.cuda.runtime.memcpyHostToDevice)
 
-        op_output.emit(indices,"image_indices_out")
-        op_output.emit(self.frame_ready_num,"frame_ready_num")
+            op_output.emit(indices,"image_indices_out")
+            op_output.emit(self.frame_ready_num,"frame_ready_num")

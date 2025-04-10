@@ -152,8 +152,6 @@ class EigerZmqRxOp(Operator):
                     if "frame" in msg:
                         break
                 frame_id = msg["frame"]
-                if frame_id - self.frame_id_last > 1:
-                    std_err_print("Lost frame between id",self.frame_id_last,frame_id)
                 self.frame_id_last = frame_id
                 # encoding info
                 encoding_msg = self.socket.recv()
@@ -218,7 +216,7 @@ class EigerDecompressOp(Operator):
         logging.basicConfig(level=logging.INFO)
         
     def setup(self, spec: OperatorSpec):
-        spec.input("image_index_encoding").connector(IOSpec.ConnectorType.DOUBLE_BUFFER, capacity=2500)
+        spec.input("image_index_encoding").connector(IOSpec.ConnectorType.DOUBLE_BUFFER, capacity=512, policy = IOSpec.QueuePolicy.POP)
         
         spec.output("decompressed_image")#.condition(ConditionType.NONE)
         spec.output("image_index")#.condition(ConditionType.NONE)
@@ -254,12 +252,18 @@ class PositionRxOp(Operator):
         socket.setsockopt(zmq.RCVTIMEO, receive_timeout_ms)
         self.socket = socket
 
+    def flush(self,param):
+        self.data_x_str = param[0]
+        self.data_y_str = param[1]
 
     def setup(self, spec: OperatorSpec):
-        spec.input("flush").condition(ConditionType.NONE)
+        spec.input("flush",policy=IOSpec.QueuePolicy.POP).condition(ConditionType.NONE)
         spec.output("pointRx_out")
         
     def compute(self, op_input, op_output, context):
+        param = op_input.receive('flush')
+        if param:
+            self.flush(param)
         try:
             msg = self.socket.recv_json()
             if msg["msg_type"] == "data":

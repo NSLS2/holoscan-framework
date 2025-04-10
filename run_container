@@ -3,6 +3,7 @@ podman run --rm --net host -it \
 --shm-size=32g \
 -v ./eiger_dir:/eiger_dir \
 -v ./eiger_dir/Holoptycho:/ptycho_gui/nsls2ptycho2/core/Holoptycho \
+-v /data/home/home/zgao/site_packages/hxntools:/ptycho_gui/hxntools \
 -v "$HOME/.Xauthority:/root/.Xauthority:rw" \
 -v ~/python_packages/nsls2ptycho2:/ptycho_gui/nsls2ptycho2 \
 -v /nsls2/data2/hxn/legacy/:/nsls2/data2/hxn/legacy \
