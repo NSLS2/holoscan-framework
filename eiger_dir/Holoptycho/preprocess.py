@@ -139,7 +139,7 @@ class PointProcessorOp(Operator):
 
         self.pos_loaded_num = 0
         self.pos_ready_num = 0
-        
+
         self.pos_x_base = None
         self.pos_y_base = None
 
@@ -181,8 +181,8 @@ class PointProcessorOp(Operator):
                 pos1 = np.mean(praw1,axis=1,dtype = np.float64)
 
 
-                pos0 = pos0*1e-4*self.x_direction
-                pos1 = pos1*-1e-4*self.y_direction
+                pos0 = pos0*self.x_ratio*self.x_direction
+                pos1 = pos1*self.y_ratio*self.y_direction
                 
                 if self.pos_x_base is None:
                     self.pos_x_base = np.min(pos0)
@@ -228,6 +228,7 @@ class PointProcessorOp(Operator):
         # Ugly hack
         if isinstance(data,tuple):
             # received raw panda data
+            # sys.stderr.write('Recv pos data frame'+str(data[0])+'\n')
             if data[0] == self.next_pack_frame_number:
                 #concat right away
                 self.raw_data = np.concatenate((self.raw_data,data[1]),axis=1)

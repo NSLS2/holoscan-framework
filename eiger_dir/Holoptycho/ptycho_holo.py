@@ -101,25 +101,38 @@ class PtychoRecon(Operator):
         self.num_points_min = 200
         self.it = 0
         self.it_last_update = np.inf
-        self.it_ends_after = 20
+        self.it_ends_after = 10
         self.pos_ready_num = 0
         self.frame_ready_num = 0
         self.points_total = 0
     
     def flush(self,param):
+
+        print('flush ptycho recon')
         self.it = 0
         self.it_last_update = np.inf
         self.pos_ready_num = 0
         self.frame_ready_num = 0
         self.recon.num_points_recon = 0
-        self.recon.flush_obj()
-        self.recon.diff_d[:,:,:] = 0
+
+        self.recon.x_range_um = param[0]
+        self.recon.y_range_um = param[1]
 
         self.num_points_min = param[2]
         self.points_total = param[3]
 
+        nx_obj_new = int(self.recon.nx_prb + np.ceil(self.recon.x_range_um*1e-6/self.recon.x_pixel_m) + self.recon.obj_pad)
+        ny_obj_new = int(self.recon.ny_prb + np.ceil(self.recon.y_range_um*1e-6/self.recon.y_pixel_m) + self.recon.obj_pad)
+
+        if np.abs(self.recon.nx_obj - nx_obj_new) < self.recon.obj_pad and np.abs(self.recon.ny_obj - ny_obj_new) < self.recon.obj_pad:
+            # Similar FOV, flush obj array without reinit
+            self.recon.flush_obj()
+        else:
+            # Oops, new obj array is needed. Good luck..
+            self.recon.new_obj()
+            print('reload shared memory')
+
         # self.recon.init_mmap()
-        print('flush ptycho recon')
 
     def setup(self,spec):
         spec.input("flush",policy=IOSpec.QueuePolicy.POP).condition(ConditionType.NONE)
@@ -156,7 +169,7 @@ class PtychoRecon(Operator):
 
         if ready_num > self.recon.num_points_recon:
             self.recon.num_points_recon = ready_num
-            if ready_num > self.points_total*0.5:
+            if ready_num > self.points_total*0.8:
                 self.it_last_update = self.it
         
         if self.recon.num_points_recon > self.num_points_min:
