@@ -19,6 +19,8 @@ from dectris.compression import decompress
 from holoscan.core import Application, Operator, OperatorSpec, Tracker, ConditionType, IOSpec
 from holoscan.decorator import create_op
 from holoscan.schedulers import GreedyScheduler, MultiThreadScheduler, EventBasedScheduler
+from holoscan.conditions import PeriodicCondition
+
 
 def std_err_print(msg):
     sys.stderr.write(msg+"\n")
@@ -67,7 +69,7 @@ def decode_cbor_message(zmq_message) -> tuple[str, npt.NDArray]:
 
         # msg['series_id'] - these msgs have series_id
         # msg['image_id'] - and image ids
-
+        image_id = msg['image_id']
         msg_data = msg["data"]["threshold_1"]
         shape, contents = msg_data.value
         dtype = tag_decoders[contents.tag]
@@ -80,9 +82,9 @@ def decode_cbor_message(zmq_message) -> tuple[str, npt.NDArray]:
             decompressed_bytes = decompress(image, compression_type, elem_size=elem_size)
             image = np.frombuffer(decompressed_bytes, dtype=dtype).reshape(shape)
     else:
-        msg_type = ""
-        image = None
-    return msg_type, image
+        msg_type = msg["type"]
+        image, image_id = None, None
+    return msg_type, image, image_id
 
 
 def parse_args():
@@ -102,14 +104,15 @@ def parse_args():
     return config
 
 class EigerZmqRxOp(Operator):
-    def __init__(self, fragment, endpoint = "" , msg_format = "json", receive_timeout_ms = 100, *args,**kwargs):
-        super().__init__(fragment, *args,**kwargs)
+    def __init__(self, fragment, endpoint = "" , msg_format = "json", receive_timeout_ms = 100,
+                 simulate_position_data_stream = False, *args, **kwargs):
+        
         
         self.endpoint = endpoint
         self.msg_format = msg_format
         # self.receive_times = []
         # self.roi = None
-        # self.simulate_position_data_stream = simulate_position_data_stream
+        self.simulate_position_data_stream = simulate_position_data_stream
 
         self.index = 0
         context = zmq.Context()
@@ -131,9 +134,11 @@ class EigerZmqRxOp(Operator):
 
     def setup(self, spec: OperatorSpec):
         spec.input("flush").condition(ConditionType.NONE)
-        # spec.output("image").condition(ConditionType.NONE)
-        # spec.output("image_index").condition(ConditionType.NONE)
-        spec.output("image_index_encoding").condition(ConditionType.NONE)
+        spec.output("image").condition(ConditionType.NONE)
+        spec.output("image_index").condition(ConditionType.NONE)
+        # spec.output("image_index_encoding").condition(ConditionType.NONE)
+        # if self.simulate_position_data_stream:
+        #     spec.output("image_index").condition(ConditionType.NONE)
     
     def compute(self, op_input, op_output, context):
         # self.logger.info("Waiting for message")
@@ -182,12 +187,14 @@ class EigerZmqRxOp(Operator):
                 #                         self.roi[1, 0]:self.roi[1, 1]]
             elif self.msg_format == "cbor":
                 msg = self.socket.recv()
-                msg_type, image_data = decode_cbor_message(msg)
-                frame_id = self.index
+                msg_type, image_data, image_id = decode_cbor_message(msg)
 
             if msg_type == "image":
+                # output = {"image": image_data, "frame_id": image_id}
                 op_output.emit(image_data, "image")
-                op_output.emit(frame_id, "image_index")
+                op_output.emit(image_id, "image_index")
+                # if self.simulate_position_data_stream:
+                    # op_output.emit(image_id, "image_index")
                 self.index += 1
             else: # probably should have a better handling of start/end messages
                 self.index = 0
@@ -228,15 +235,66 @@ class EigerDecompressOp(Operator):
         op_output.emit(image_index, "image_index")
 
 
+class PositionSimTxOp(Operator):
+    def __init__(self, *args, h5_file:str=None, upsample_factor:int=None, point_batch:int=200, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.logger = logging.getLogger("PositionTxOp")
+        logging.basicConfig(level=logging.INFO)
+        self.image_index = None
+        self.current_index = 0
+        self.frame_count = 0
+        self.upsample_factor = upsample_factor
+        self.point_batch = point_batch
+        
+        self.h5_file = h5_file
+        with h5py.File(self.h5_file, 'r') as f:
+            self.points = f["points"][()]
+        self.logger.info(f"points: {self.points.shape}")
+        
+    def setup(self, spec: OperatorSpec):
+        spec.input("image_index").condition(ConditionType.NONE).connector(IOSpec.ConnectorType.DOUBLE_BUFFER, capacity=1, policy = IOSpec.QueuePolicy.POP)
+        spec.output("msg")
+        
+        
+    def compute(self, op_input, op_output, context):
+        image_index = op_input.receive("image_index")
+        if self.image_index is None:
+            self.image_index = image_index
+        
+        if self.image_index is not None:
+            idx1 = self.current_index
+            idx2 = np.min([self.current_index+self.point_batch, self.points.shape[1]])
+            if idx1 == idx2:
+                return
+            # self.logger.info(f"{self.points[0, idx1:idx2][:10]=}")
+            x_to_send = np.tile(self.points[0, idx1:idx2], (self.upsample_factor, 1)).T.ravel()
+            y_to_send = np.tile(self.points[1, idx1:idx2], (self.upsample_factor, 1)).T.ravel()
+
+            self.current_index = idx2
+
+            msg = {
+                "msg_type": "data",
+                "frame_number": self.frame_count,
+                "datasets": {
+                    "/INENC2.VAL.Value": {"data": x_to_send.tolist()},
+                    "/INENC3.VAL.Value": {"data": y_to_send.tolist()}
+                }
+            }
+            # self.logger.info(f"emitting msg: {msg['msg_type']}")
+            op_output.emit(msg, "msg")
+            self.frame_count += 1
+
+
 class PositionRxOp(Operator):
     def __init__(self, *args,
                 endpoint:str=None,
+                simulate_stream:bool=False,
                 receive_timeout_ms:int=100,
                 ch1:str=None,
                 ch2:str=None,
                 upsample_factor:int=None,
                 **kwargs):
-        super().__init__(*args, **kwargs)
+        
         self.logger = logging.getLogger("PositionRxOp")
         logging.basicConfig(level=logging.INFO)
 
@@ -244,14 +302,17 @@ class PositionRxOp(Operator):
         self.data_y_str = ch2
         self.upsample_factor = upsample_factor
         self.endpoint = endpoint
-        context = zmq.Context()
-        socket = context.socket(zmq.SUB)
-        socket.connect(self.endpoint)
-        socket.setsockopt_string(zmq.SUBSCRIBE, "")
-        # Set receive timeout
-        socket.setsockopt(zmq.RCVTIMEO, receive_timeout_ms)
-        self.socket = socket
-
+        self.simulate_stream = simulate_stream
+        if not simulate_stream:
+            context = zmq.Context()
+            socket = context.socket(zmq.SUB)
+            socket.connect(self.endpoint)
+            socket.setsockopt_string(zmq.SUBSCRIBE, "")
+            # Set receive timeout
+            socket.setsockopt(zmq.RCVTIMEO, receive_timeout_ms)
+            self.socket = socket
+        super().__init__(*args, **kwargs)
+        
     def flush(self,param):
         self.data_x_str = param[0]
         self.data_y_str = param[1]
@@ -259,41 +320,133 @@ class PositionRxOp(Operator):
     def setup(self, spec: OperatorSpec):
         spec.input("flush",policy=IOSpec.QueuePolicy.POP).condition(ConditionType.NONE)
         spec.output("pointRx_out")
+        if self.simulate_stream:
+            spec.input("pointRx_in")
         
     def compute(self, op_input, op_output, context):
         param = op_input.receive('flush')
         if param:
             self.flush(param)
-        try:
-            msg = self.socket.recv_json()
-            if msg["msg_type"] == "data":
-                frame_number = msg["frame_number"]
+        if self.simulate_stream:
+            pointRx_in = op_input.receive("pointRx_in")
+            msg = pointRx_in
+        else:
+            try:
+                msg = self.socket.recv_json()
                 
-                x = msg["datasets"][self.data_x_str]["data"]
-                y = msg["datasets"][self.data_y_str]["data"]
-                # idx_start = msg["datasets"][self.data_x_str]["starting_sample_number"]
-                # size = msg["datasets"][self.data_x_str]["size"]
+            except zmq.error.Again:
+            # Timeout occurred
+                self.logger.debug("No message received within timeout period")
+                return
+            except Exception as e:
+                self.logger.error(f"Error receiving message: {e}")
+                return
+        
+        if msg["msg_type"] == "data":
+            frame_number = msg["frame_number"]
+            
+            x = msg["datasets"][self.data_x_str]["data"]
+            y = msg["datasets"][self.data_y_str]["data"]
+            # self.logger.info(f"emitting x: {x.shape}, y: {y.shape}")
+            op_output.emit((frame_number,np.array([x, y])), "pointRx_out")
+            # self.logger.info(f"emitting x: {x[:20]}, y: {y[:20]}")
+            # op_output.emit({"frame_number": frame_number,
+            #                 "xy": np.array([x, y])},
+            #                 "pointRx_out")
 
-                # x = np.reshape(x_, (size // self.upsample_factor, self.upsample_factor))
-                # x = np.mean(x, 1)
-                # y = np.reshape(y_, (size // self.upsample_factor, self.upsample_factor))
-                # y = np.mean(y, 1)
+class SinkOp(Operator):
+    def __init__(self, fragment, *args, silent=False, **kwargs):
+        super().__init__(fragment, *args, **kwargs) 
+        self.logger = logging.getLogger(kwargs.get("name", "SinkOp"))
+        self._first_frame_time = None
+        self._total_frame_count = 0
+        self.silent = silent
 
-                # final_size = size // self.upsample_factor
-                # idx_start = idx_start // self.upsample_factor
-                # index = np.arange(idx_start, idx_start + final_size)      
-                # std_err_print(f"{index[:10]=}")
-                op_output.emit((frame_number,np.array([x, y])), "pointRx_out")
-        except zmq.error.Again:
-        # Timeout occurred
-            self.logger.debug("No message received within timeout period")
-        except Exception as e:
-            self.logger.error(f"Error receiving message: {e}")
+    def setup(self, spec: OperatorSpec):
+        spec.param("receivers", kind="receivers")
+        
 
-                # for index, x, y in zip(index, x, y):
-                #     op_output.emit(np.array([x, y]), "point")
-                #     op_output.emit(index, "point_index")
-                    
+    def compute(self, op_input, op_output, context):
+        receivers = op_input.receive("receivers")
+        if self._first_frame_time is None:
+            self._first_frame_time = time.time()
+        self._total_frame_count += 1
+        if self._total_frame_count % 100 == 0:
+            elapsed = time.time() - self._first_frame_time
+            self.logger.info(f"{self._total_frame_count} received in {elapsed:.1f}s. speed: {self._total_frame_count/elapsed:.1f} Hz")
+        # print(f"msgs received: {len(receivers)}")
+        if not self.silent:
+            for i, receiver in enumerate(receivers):
+                if isinstance(receiver, np.ndarray):
+                    self.logger.info(f"msg {i}: tensor with shape {receiver.shape}")
+                else:
+                    for key, tensor in receiver.items():
+                        if isinstance(tensor, np.ndarray):
+                            self.logger.info(f"msg {i}: tensor {key} with shape {tensor.shape}")
+                        else:
+                            self.logger.info(f"msg {i}: tensor {key} and type {type(tensor)}")
+
+
+class DataSourceApp(Application):
+    def __init__(self, *args,
+                 simulate_position_data_stream=False,
+                 position_data_path=None,
+                 **kwargs):
+        super().__init__(*args,**kwargs)
+
+        self.simulate_position_data_stream = simulate_position_data_stream
+        self.position_data_path = position_data_path
+
+
+    def compose(self):
+
+        self.eiger_zmq_rx = EigerZmqRxOp(self,"tcp://0.0.0.0:5555", msg_format="cbor", name="eiger_zmq_rx",
+                                         simulate_position_data_stream=self.simulate_position_data_stream)
+        # self.eiger_decompress = EigerDecompressOp(self, name="eiger_decompress")
+        
+        if self.simulate_position_data_stream:
+            print("Simulating position data stream")
+            self.pos_tx = PositionSimTxOp(self,
+                                          PeriodicCondition(self, recess_period=int(0.2*1e9)),
+                                          upsample_factor=10,
+                                          h5_file=self.position_data_path,
+                                          name="pos_tx")
+        self.pos_rx = PositionRxOp(self,
+                                    simulate_stream=self.simulate_position_data_stream,
+                                    endpoint = "tcp://0.0.0.0:5555",
+                                    ch1 = "/INENC2.VAL.Value",
+                                    ch2 = "/INENC3.VAL.Value",
+                                    upsample_factor=10,
+                                name="pos_rx")
+        self.sink_img = SinkOp(self, silent=True, name="sink_img")
+        self.sink_pos = SinkOp(self, name="sink_pos")
+
+        # self.add_flow(self.eiger_zmq_rx,self.eiger_decompress,{("image_index_encoding","image_index_encoding")})
+        # self.add_flow(self.eiger_decompress,self.sink,{("decompressed_image","decompressed_image")})
+
+        self.add_flow(self.eiger_zmq_rx,self.sink_img,{("image","receivers"), ("image_index", "receivers")})
+        self.add_flow(self.eiger_zmq_rx,self.pos_tx,{("image_index", "image_index")})
+        self.add_flow(self.pos_tx,self.pos_rx,{("msg", "pointRx_in")})
+        self.add_flow(self.pos_rx,self.sink_pos,{("pointRx_out","receivers")})
+
+        
+
+def main():
+    app = DataSourceApp(
+                simulate_position_data_stream=True,
+                position_data_path="/test_data/scan_257331.h5")
+    scheduler = MultiThreadScheduler(
+                app,
+                worker_thread_number=9,
+                check_recession_period_ms=0.001,
+                stop_on_deadlock=True,
+                stop_on_deadlock_timeout=500,
+                # strict_job_thread_pinning=True,
+                name="multithread_scheduler",
+            )
+    app.scheduler(scheduler)
+    
+    app.run()        
 # example of msg:
 # {'msg_type': 'start', 'arm_time': '2025-02-28T18:44:22.905865051Z', 'start_time': '2025-02-28T18:44:22.905908989Z', 'hw_time_offset_ns': None}
 # {'msg_type': 'data', 'frame_number': 0, 'datasets':
@@ -307,4 +460,6 @@ class PositionRxOp(Operator):
             # data = np.array([0, 0]) # placeholder - this should be changed to something that will actually receive the data
         # op_output.emit(data, "point")
         # op_output.emit(index, "point_index")
+
+
 
