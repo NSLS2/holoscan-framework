@@ -1,0 +1,17 @@
+#!/bin/bash
+podman run --rm --net host -it \
+--shm-size=32g \
+--privileged \
+-v ./eiger_dir:/eiger_dir \
+-v ./eiger_dir/Holoptycho:/ptycho_gui/nsls2ptycho/core/Holoptycho \
+-v ./eiger_simulation/test_data:/test_data \
+-v ../:/ptycho_gui/ \
+-w /eiger_dir \
+-e DISPLAY="$DISPLAY" \
+-e OMPI_ALLOW_RUN_AS_ROOT=1 \
+-e OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1 \
+-e OMPI_COMM_WORLD_LOCAL_RANK=0 \
+-e OMPI_COMM_WORLD_LOCAL_SIZE=1 \
+-e HOLOSCAN_ENABLE_PROFILE=1 \
+--device nvidia.com/gpu=all \
+hxn-ptycho-holoscan pixi shell
