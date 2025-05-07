@@ -1,3 +1,15 @@
+# Pipeline:
+# rank 0
+# Src --> Scatter --> Process --> Gather --> Sink
+#            A                      A
+#            |                      |
+#            |  ===  MPI COMM  ===  |  
+#            |                      |
+# rank 1     V                      V
+#         Scatter --> Process --> Gather
+#
+# ...
+#
 import numpy as np
 from mpi4py import MPI
 from holoscan.core import Application, Operator, OperatorSpec
@@ -43,13 +55,22 @@ class ScatterOp(Operator):
             input = None
         output = np.empty(N_ELEM, dtype=np.float32)
         comm.Scatter(input, output, root=0)
-        output += rank
         op_output.emit(output, "out")
 
         end_time = time.time()
         print(f"ScatterOp End: {rank=}, {self.count=}, duration: {end_time - start_time}")
         self.count += 1
 
+class ProcessOp(Operator):
+
+    def setup(self, spec):
+        spec.input("in")
+        spec.output("out")
+
+    def compute(self, op_input, op_output, context):
+        input = op_input.receive("in")
+        output = input + rank
+        op_output.emit(output, "out")
 
 class GatherOp(Operator):
 
@@ -92,13 +113,15 @@ class TestApp(Application):
         if rank == 0:
             src_op = SrcOp(self, CountCondition(self, 2), name="src_op")
         scatter_op = ScatterOp(self, name="scatter_op")
+        process_op = ProcessOp(self, name="process_op")
         gather_op = GatherOp(self, name="gather_op")
         sink_op = SinkOp(self, name="sink_op")
 
         if rank == 0:
             self.add_flow(src_op, scatter_op)
     
-        self.add_flow(scatter_op, gather_op)
+        self.add_flow(scatter_op, process_op)
+        self.add_flow(process_op, gather_op)
         if rank == 0:
             self.add_flow(gather_op, sink_op)
 
