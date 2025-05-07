@@ -7,8 +7,12 @@
 #            |                      |
 # rank 1     V                      V
 #         Scatter --> Process --> Gather
-#
-# ...
+#            A                      A
+#            |                      |
+#            |  ===  MPI COMM  ===  |  
+#            |                      |
+# rank 2     V                      V
+#         Scatter --> Process --> Gather
 #
 import numpy as np
 from mpi4py import MPI
