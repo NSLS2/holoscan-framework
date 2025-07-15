@@ -155,6 +155,18 @@ class PointProcessorOp(Operator):
     def setup(self, spec: OperatorSpec):
         spec.input("flush",policy=IOSpec.QueuePolicy.POP).condition(ConditionType.NONE)
         spec.input("pointOp_in").connector(IOSpec.ConnectorType.DOUBLE_BUFFER, capacity=32)
+
+        # An option to deal with the ugly hack:
+        # spec.input("pointOp_in").connector(IOSpec.ConnectorType.DOUBLE_BUFFER, capacity=32)
+        # spec.input("image_indices_in").connector(IOSpec.ConnectorType.DOUBLE_BUFFER, capacity=32)
+        
+        # spec.multi_port_condition(
+        #     kind=ConditionType.MULTI_MESSAGE_AVAILABLE,
+        #     port_names=["pointOp_in", "image_indices_in"],
+        #     sampling_mode="SumOfAll",
+        #     min_sum=1,
+        # )
+
         spec.output("pos_ready_num").condition(ConditionType.NONE)
     
     def search_next_frame_in_buffer(self):
@@ -227,6 +239,7 @@ class PointProcessorOp(Operator):
 
         # Ugly hack
         if isinstance(data,tuple):
+        # if data:            # <---- this is the option to deal with the ugly hack
             # received raw panda data
             # sys.stderr.write('Recv pos data frame'+str(data[0])+'\n')
             if data[0] == self.next_pack_frame_number:
@@ -242,6 +255,8 @@ class PointProcessorOp(Operator):
 
             self.process_point_info()
         else:
+        # data = op_input.receive("image_indices_in")             # <---- this is the option to deal with the ugly hack
+        # if data:
             # received frame ids
             self.frame_id_list = np.concatenate((self.frame_id_list,data),axis=0)
 
