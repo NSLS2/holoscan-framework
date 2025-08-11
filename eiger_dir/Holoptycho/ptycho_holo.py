@@ -1,5 +1,6 @@
 import logging
 from time import sleep
+import time
 
 import sys
 import os
@@ -11,7 +12,7 @@ from hxntools.motor_info import motor_table
 
 
 from ..ptycho.utils import parse_config
-from ..ptycho.recon_ptycho_gui import recon_gui
+from ..ptycho.recon_ptycho_gui import recon_thread
 
 # from nsls2ptycho.core.ptycho.recon_ptycho_gui import create_recon_object, deal_with_init_prb
 # from nsls2ptycho.core.ptycho.utils import parse_config
@@ -63,7 +64,7 @@ class InitRecon(Operator):
                                             'flush_image_batch')
                 op_output.emit(True,'flush_image_send')
                 op_output.emit((p.x_range,p.y_range,motor_table[p.x_motor][1],motor_table[p.y_motor][1],p.x_num*2),'flush_pos_proc')
-                op_output.emit((p.x_range,p.y_range,p.x_num*2,p.nz),'flush_pty')
+                op_output.emit((p.scan_num,p.x_range,p.y_range,np.maximum(p.x_num*2,256),p.nz),'flush_pty')
         sleep(0.05)
 
 # class PtychoCtrl(Operator):
@@ -95,16 +96,18 @@ class PtychoRecon(Operator):
     def __init__(self, *args, param=None, **kwargs):
         super().__init__(*args,**kwargs)
 
-        self.recon, rank = recon_gui(param)
+        self.recon, rank = recon_thread(param)
         self.recon.setup()
 
-        self.num_points_min = 200
+        self.num_points_min = 300
         self.it = 0
         self.it_last_update = np.inf
         self.it_ends_after = 10
         self.pos_ready_num = 0
         self.frame_ready_num = 0
         self.points_total = 0
+        self.timestamp_iter = []
+        self.num_points_recv_iter = []
     
     def flush(self,param):
 
@@ -115,11 +118,15 @@ class PtychoRecon(Operator):
         self.frame_ready_num = 0
         self.recon.num_points_recon = 0
 
-        self.recon.x_range_um = param[0]
-        self.recon.y_range_um = param[1]
+        self.recon.scan_num = str(param[0])
+        self.recon.x_range_um = param[1]
+        self.recon.y_range_um = param[2]
 
-        self.num_points_min = param[2]
-        self.points_total = param[3]
+        self.num_points_min = param[3]
+        self.points_total = param[4]
+
+        self.timestamp_iter = []
+        self.num_points_recv_iter = []
 
         nx_obj_new = int(self.recon.nx_prb + np.ceil(self.recon.x_range_um*1e-6/self.recon.x_pixel_m) + self.recon.obj_pad)
         ny_obj_new = int(self.recon.ny_prb + np.ceil(self.recon.y_range_um*1e-6/self.recon.y_pixel_m) + self.recon.obj_pad)
@@ -174,10 +181,13 @@ class PtychoRecon(Operator):
         
         if self.recon.num_points_recon > self.num_points_min:
             # Maybe not?
-            self.recon.live_update_plan_last()
+            # self.recon.live_update_plan_last()
 
+            self.timestamp_iter.append(time.time())
+            self.num_points_recv_iter.append(self.recon.num_points_recon)
             self.recon.one_iter(self.it)
             self.it += 1
+            sleep(0.2)
 
         else:
             sleep(0.2)
@@ -191,15 +201,18 @@ class PtychoRecon(Operator):
         
         if self.it - self.it_last_update >= self.it_ends_after and self.num_points_min<np.inf:
             self.num_points_min = np.inf
-            op_output.emit(self.recon.obj,"output")
+            op_output.emit((self.recon,self.timestamp_iter,self.num_points_recv_iter),"output")
         sys.stdout.flush()
         sys.stderr.flush()
         
 
 @create_op(inputs="output")
 def SaveResult(output):
-    print('Done! Saving..')
-    np.save('/eiger_dir/live_test/output.npy',output)
+    print('Live recon done! Saving results..')
+    output[0].save_recon()
+    save_dir = output[0].save_recon_flow()
+    np.save(save_dir+'/timestamp_iter',np.array(output[1]))
+    np.save(save_dir+'/num_points_recv_iter',np.array(output[2]))
     return
     
 
@@ -214,14 +227,14 @@ class PtychoApp(Application):
         ny_prb = self.pty.recon.ny_prb
         nz = self.pty.recon.num_points
 
-        batchsize = 100
-        min_points = 200
+        batchsize = 256
+        min_points = 300
 
-        self.image_batch.roi = np.array([[644, 900], [525, 781]])
+        self.image_batch.roi = np.array([[207, 387], [236, 416]])
         self.image_batch.batchsize = batchsize
         self.image_batch.nx_prb = nx_prb
         self.image_batch.ny_prb = ny_prb
-        self.image_batch.images_to_add = np.zeros((batchsize, 256, 256), dtype = np.uint32)
+        self.image_batch.images_to_add = np.zeros((batchsize, 180, 180), dtype = np.uint32)
         self.image_batch.indices_to_add = np.zeros(batchsize, dtype=np.int32)
 
         self.image_proc.detmap_threshold = 0
@@ -254,7 +267,7 @@ class PtychoApp(Application):
         param = parse_config(self.config_path)
         param.live_recon_flag = True
 
-        self.eiger_zmq_rx = EigerZmqRxOp(self,"tcp://10.66.19.45:5559", name="eiger_zmq_rx")
+        self.eiger_zmq_rx = EigerZmqRxOp(self,"tcp://10.66.19.47:5559", name="eiger_zmq_rx")
         self.eiger_decompress = EigerDecompressOp(self, name="eiger_decompress")
         self.pos_rx = PositionRxOp(self,endpoint = "tcp://10.66.19.45:6666", ch1 = "/INENC2.VAL.Value", ch2 = "/INENC3.VAL.Value", upsample_factor=10,
                                    name="pos_rx")

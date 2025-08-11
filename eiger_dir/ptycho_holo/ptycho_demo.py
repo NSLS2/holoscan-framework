@@ -10,7 +10,7 @@ import sys
 sys.path.append('/ptycho_gui/')
 
 from nsls2ptycho2.core.ptycho.utils import parse_config
-from nsls2ptycho2.core.ptycho.recon_ptycho_gui import recon_gui
+from nsls2ptycho2.core.ptycho.recon_ptycho_gui import recon_thread
 
 class source_det(Operator):
     def __init__(self,*args,**kwargs):
@@ -49,7 +49,7 @@ class PtychoRecon(Operator):
         param = parse_config('./ptycho_config.txt')
         param.live_recon_flag = True
 
-        self.recon, rank = recon_gui(param)
+        self.recon, rank = recon_thread(param)
         self.recon.setup()
 
     def setup(self,spec):

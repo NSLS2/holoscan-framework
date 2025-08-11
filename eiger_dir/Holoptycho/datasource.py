@@ -218,12 +218,13 @@ class EigerDecompressOp(Operator):
     def setup(self, spec: OperatorSpec):
         spec.input("image_index_encoding").connector(IOSpec.ConnectorType.DOUBLE_BUFFER, capacity=512, policy = IOSpec.QueuePolicy.POP)
         
-        spec.output("decompressed_image")#.condition(ConditionType.NONE)
-        spec.output("image_index")#.condition(ConditionType.NONE)
+        spec.output("decompressed_image").condition(ConditionType.NONE)
+        spec.output("image_index").condition(ConditionType.NONE)
         
     def compute(self, op_input, op_output, context):
         compressed_image, image_index, encoding_msg = op_input.receive("image_index_encoding")
         _, decompressed_image = decode_json_message(compressed_image, encoding_msg)
+        # std_err_print(f'Decompress {image_index}')
         op_output.emit(decompressed_image, "decompressed_image")
         op_output.emit(image_index, "image_index")
 

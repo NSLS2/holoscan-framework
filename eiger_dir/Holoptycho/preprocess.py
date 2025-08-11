@@ -23,7 +23,7 @@ class ImageBatchOp(Operator):
         self.indices_to_add = None #np.zeros(self.batchsize, dtype=np.int32)
 
     def flush(self,param):
-        self.count = 0
+        self.counter = 0
         self.roi = np.array(param)
         
     def setup(self, spec: OperatorSpec):
@@ -113,7 +113,7 @@ class PointProcessorOp(Operator):
         self.pos_ready_num = 0
 
         # Hardcode
-        self.min_points = 200
+        self.min_points = 300
         self.max_points = 20000
         self.x_direction = -1.
         self.y_direction = -1.
@@ -123,8 +123,8 @@ class PointProcessorOp(Operator):
         self.y_range_um = 2.
         self.x_pixel_m = 5e-9
         self.y_pixel_m = 5e-9
-        self.nx_prb = 256
-        self.ny_prb = 256
+        self.nx_prb = 180
+        self.ny_prb = 180
         self.obj_pad = 30
         self.x_ratio = 0
         self.y_ratio = 0
@@ -218,12 +218,14 @@ class PointProcessorOp(Operator):
                 self.pos_loaded_num = p_total_num
                 
     def send_points_to_recon(self):
+
         for i in range(self.pos_ready_num,self.frame_id_list.shape[0]):
             # print('loaded', self.pos_loaded_num)
             if self.pos_loaded_num > self.frame_id_list[i] and self.pos_ready_num < self.max_points:
                 fid = self.frame_id_list[i]
                 self.point_info_target[self.pos_ready_num,:] = cp.array(self.point_info[fid,:],\
                                                                         dtype = np.int32, order='C')
+                # sys.stderr.write(f'{self.point_info[fid,:]}'+'\n')
                 self.pos_ready_num += 1
             else:
                 break
