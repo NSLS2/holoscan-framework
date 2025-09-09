@@ -3,10 +3,10 @@ podman run --rm --net host -it \
 --shm-size=32g \
 -v ./eiger_dir:/eiger_dir \
 -v ./root_home:/root \
--v ./eiger_dir/Holoptycho:/ptycho_gui/nsls2ptycho2/core/Holoptycho \
 -v /nsls2/data/hxn/legacy/home/xf03id/src/hxntools/hxntools:/ptycho_gui/hxntools \
 -v "$HOME/.Xauthority:/root/.Xauthority:rw" \
--v ~/python_packages/nsls2ptycho2:/ptycho_gui/nsls2ptycho2 \
+-v .:/holoscan-framework \
+-v ../src/nsls2ptycho:/ptycho_gui/nsls2ptycho \
 -v /nsls2/data2/hxn/legacy:/nsls2/data2/hxn/legacy \
 -v /nsls2/data2/hxn/legacy:/data \
 -w /eiger_dir \
@@ -16,7 +16,9 @@ podman run --rm --net host -it \
 -e OMPI_COMM_WORLD_LOCAL_RANK=0 \
 -e OMPI_COMM_WORLD_LOCAL_SIZE=1 \
 -e HOLOSCAN_ENABLE_PROFILE=1 \
---device nvidia.com/gpu=1 \
+--device nvidia.com/gpu=all \
 hxn-ptycho-holoscan pixi shell
-#-v ../ptycho_gui:/ptycho_gui \
-#-v ../ptycho:/ptycho_gui/nsls2ptycho/core/ptycho \
+# -v ./eiger_dir/Holoptycho:/ptycho_gui/nsls2ptycho/core/Holoptycho \
+# -v ~/python_packages/nsls2ptycho2:/ptycho_gui/nsls2ptycho2 \
+# -v ../ptycho_gui:/ptycho_gui \
+# -v ../ptycho:/ptycho_gui/nsls2ptycho/core/ptycho \
