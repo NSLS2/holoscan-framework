@@ -16,7 +16,7 @@ podman run --rm --net host -it \
 -e OMPI_COMM_WORLD_LOCAL_RANK=0 \
 -e OMPI_COMM_WORLD_LOCAL_SIZE=1 \
 -e HOLOSCAN_ENABLE_PROFILE=1 \
---device nvidia.com/gpu=2 \
+--device nvidia.com/gpu=1 \
 hxn-ptycho-holoscan pixi shell
 #-v ../ptycho_gui:/ptycho_gui \
 #-v ../ptycho:/ptycho_gui/nsls2ptycho/core/ptycho \

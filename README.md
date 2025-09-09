@@ -23,6 +23,11 @@ To build a container named `hxn-ptycho-holoscan`:
 docker build ./eiger_dir -t hxn-ptycho-holoscan --network host
 ```
 
+If docker/podman complains about groupid, try:
+```
+podman build --userns-uid-map=0:0:1 --userns-uid-map=1:1:1999 --userns-uid-map=65534:2000:2 ./eiger_dir -t hxn-ptycho-holoscan --network host
+```
+
 To turn the Docker container into a podman container, we run the following command:
 ```
 podman pull docker-daemon:hxn-ptycho-holoscan:latest
