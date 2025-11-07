@@ -94,12 +94,14 @@ class EigerZmqRxOp(Operator):
         self.receive_timeout_ms = receive_timeout_ms
         context = zmq.Context()
         
-        self.socket = context.socket(zmq.PULL)
+        #self.socket = context.socket(zmq.PULL)
+        self.socket = context.socket(zmq.SUB)
         # Set receive timeout
         self.socket.setsockopt(zmq.RCVTIMEO, receive_timeout_ms)
 
         try:
             self.socket.connect(self.endpoint)
+            socket.setsockopt_string(zmq.SUBSCRIBE, "")
         except socket.error:
             self.logger.error("Failed to create socket")
         
