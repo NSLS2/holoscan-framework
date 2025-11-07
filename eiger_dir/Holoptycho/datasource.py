@@ -114,7 +114,6 @@ class EigerZmqRxOp(Operator):
         self.index = 0
         context = zmq.Context()
         
-        #self.socket = context.socket(zmq.PULL)
         self.socket = context.socket(zmq.SUB)
         # Set receive timeout
         self.socket.setsockopt(zmq.RCVTIMEO, receive_timeout_ms)
