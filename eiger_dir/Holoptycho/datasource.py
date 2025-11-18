@@ -12,6 +12,7 @@ import pprint
 import traceback
 import h5py
 import time
+import os
 
 import copy
 from dectris.compression import decompress
@@ -19,6 +20,8 @@ from dectris.compression import decompress
 from holoscan.core import Application, Operator, OperatorSpec, Tracker, ConditionType, IOSpec
 from holoscan.decorator import create_op
 from holoscan.schedulers import GreedyScheduler, MultiThreadScheduler, EventBasedScheduler
+
+
 
 def std_err_print(msg):
     sys.stderr.write(msg+"\n")
@@ -46,7 +49,7 @@ def decode_json_message(data_msg, encoding_msg) -> tuple[str, npt.NDArray]:
         elem_size = elem_type(0).nbytes
         # std_err_print(f"data_msg: {data_msg}")
         decompressed = decompress(data_msg, data_encoding_str, elem_size=elem_size)
-        image = np.frombuffer(decompressed, dtype=elem_type)
+        image = np.frombuffer(bytearray(decompressed), dtype=elem_type)
         image = image.reshape(data_shape[1], data_shape[0])
         msg_type = "image"
     else:
@@ -112,15 +115,29 @@ class EigerZmqRxOp(Operator):
         # self.simulate_position_data_stream = simulate_position_data_stream
 
         self.index = 0
-        context = zmq.Context()
-        
-        self.socket = context.socket(zmq.SUB)
+
+        if True: # Encryption for the zmq socket
+            context = zmq.Context()
+            self.socket = context.socket(zmq.SUB)
+            
+            server_pub = os.environ["SERVER_PUBLIC_KEY"].encode('ascii')
+            client_pub = os.environ["CLIENT_PUBLIC_KEY"].encode('ascii')
+            client_sec = os.environ["CLIENT_SECRET_KEY"].encode('ascii')
+
+            self.socket.setsockopt(zmq.CURVE_PUBLICKEY, client_pub)
+            self.socket.setsockopt(zmq.CURVE_SECRETKEY, client_sec)
+            self.socket.setsockopt(zmq.CURVE_SERVERKEY, server_pub)
+        else:
+            context = zmq.Context()
+            self.socket = context.socket(zmq.SUB)
+
         # Set receive timeout
         self.socket.setsockopt(zmq.RCVTIMEO, receive_timeout_ms)
 
+        self.socket.setsockopt_string(zmq.SUBSCRIBE, "")
+
         try:
             self.socket.connect(self.endpoint)
-            socket.setsockopt_string(zmq.SUBSCRIBE, "")
         except socket.error:
             self.logger.error("Failed to create socket")
         
@@ -163,6 +180,8 @@ class EigerZmqRxOp(Operator):
                 # self.receive_times.append(time.time())
                 output = (copy.deepcopy(data_msg), copy.deepcopy(frame_id), copy.deepcopy(encoding_msg))
                 op_output.emit(output, "image_index_encoding")
+
+                # sys.stderr.write("Send frame to decoding\n")
                 
                 # if len(self.receive_times) == 2000:
                 #     _receive_times = np.array(self.receive_times)

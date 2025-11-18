@@ -16,6 +16,7 @@ class ImageBatchOp(Operator):
         logging.basicConfig(level=logging.INFO)
         self.counter = 0
 
+        self.flip_image = False
         self.batchsize = 0
         self.nx_prb = 0
         self.ny_prb = 0
@@ -41,11 +42,21 @@ class ImageBatchOp(Operator):
         image = op_input.receive("image")
         image_index = op_input.receive("image_index")
 
+        # For Eiger2 detector
+        if self.flip_image:
+            image = np.flip(image,1)
+
+
         image = image[self.roi[0, 0]:self.roi[0, 1],
                     self.roi[1, 0]:self.roi[1, 1]]
+
+        # Remove Bad pixels (-1 to unsigned int)
+        image[image==np.iinfo(image.dtype).max] = 0
         
         self.images_to_add[self.counter, :, :] = image
         self.indices_to_add[self.counter] = image_index
+
+        # sys.stderr.write(f"Received image {image_index}\n")
         
         if self.counter < (self.batchsize - 1):
             self.counter += 1

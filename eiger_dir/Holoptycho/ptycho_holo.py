@@ -28,7 +28,7 @@ from .preprocess import ImageBatchOp, ImagePreprocessorOp, PointProcessorOp, Ima
 from .liverecon_utils import parse_scan_header
 
 class InitRecon(Operator):
-    def __init__(self, *args, param, scan_header_file, **kwargs):
+    def __init__(self, *args, param, batchsize,min_points,scan_header_file, **kwargs):
         super().__init__(*args,**kwargs)
         self.scan_num = None
         self.scan_header_file = scan_header_file
@@ -40,6 +40,8 @@ class InitRecon(Operator):
         self.roi_ptyy0 = param.batch_y0
         self.nx = param.nx
         self.ny = param.ny
+        self.batchsize = batchsize
+        self.min_points = min_points
 
     def setup(self,spec):
         spec.output("flush_pos_rx").condition(ConditionType.NONE)
@@ -55,6 +57,7 @@ class InitRecon(Operator):
             if self.scan_num != p.scan_num:
 
                 self.scan_num = p.scan_num
+                nz = p.nz - p.nz%self.batchsize
                 # New scan
                 op_output.emit((motor_table[p.x_motor][2],motor_table[p.y_motor][2]),'flush_pos_rx')
                 op_output.emit([[p.det_roiy0 + self.roi_ptyy0, \
@@ -64,7 +67,7 @@ class InitRecon(Operator):
                                             'flush_image_batch')
                 op_output.emit(True,'flush_image_send')
                 op_output.emit((p.x_range,p.y_range,motor_table[p.x_motor][1],motor_table[p.y_motor][1],p.x_num*2),'flush_pos_proc')
-                op_output.emit((p.scan_num,p.x_range,p.y_range,np.maximum(p.x_num*2,256),p.nz),'flush_pty')
+                op_output.emit((p.scan_num,p.x_range,p.y_range,np.maximum(p.x_num*2,self.min_points),nz),'flush_pty')
         sleep(0.05)
 
 # class PtychoCtrl(Operator):
@@ -125,6 +128,9 @@ class PtychoRecon(Operator):
         self.num_points_min = param[3]
         self.points_total = param[4]
 
+        if self.num_points_min < self.recon.gpu_batch_size:
+            self.num_points_min = self.recon.gpu_batch_size
+
         self.timestamp_iter = []
         self.num_points_recv_iter = []
 
@@ -170,11 +176,11 @@ class PtychoRecon(Operator):
             self.frame_ready_num = int(frame_ready_num)
 
         if self.it - self.it_last_update < self.it_ends_after and self.points_total>0:
-            print(f"Recv pos {self.pos_ready_num} frame {self.frame_ready_num}")
+            print(f"Recv pos {self.pos_ready_num} frame {self.frame_ready_num} / {self.points_total}")
 
         ready_num = np.minimum(self.pos_ready_num,self.frame_ready_num)
 
-        if ready_num > self.recon.num_points_recon:
+        if ready_num > self.recon.num_points_recon and self.num_points_min < np.inf:
             self.recon.num_points_recon = ready_num
             if ready_num > self.points_total*0.8:
                 self.it_last_update = self.it
@@ -221,21 +227,20 @@ class PtychoApp(Application):
         super().__init__(*args,**kwargs)
 
         self.config_path = config_path
+
     def config_ops(self,param):
 
         nx_prb = self.pty.recon.nx_prb
         ny_prb = self.pty.recon.ny_prb
         nz = self.pty.recon.num_points
 
-        batchsize = 256
-        min_points = 300
-
-        self.image_batch.roi = np.array([[207, 387], [236, 416]])
-        self.image_batch.batchsize = batchsize
+        self.image_batch.roi = np.array([[207, 387], [236, 416]]) # Only temporary, will be replaced by scan header
+        self.image_batch.batchsize = self.batchsize
+        self.image_batch.flip_image = self.flip_image
         self.image_batch.nx_prb = nx_prb
         self.image_batch.ny_prb = ny_prb
-        self.image_batch.images_to_add = np.zeros((batchsize, 180, 180), dtype = np.uint32)
-        self.image_batch.indices_to_add = np.zeros(batchsize, dtype=np.int32)
+        self.image_batch.images_to_add = np.zeros((self.batchsize, nx_prb, ny_prb), dtype = np.uint32)
+        self.image_batch.indices_to_add = np.zeros(self.batchsize, dtype=np.int32)
 
         self.image_proc.detmap_threshold = 0
         self.image_proc.badpixels = np.array([])
@@ -246,7 +251,7 @@ class PtychoApp(Application):
         self.point_proc.point_info = np.zeros((nz,4),dtype = np.int32)
         self.point_proc.point_info_target = self.pty.recon.point_info_d
 
-        self.point_proc.min_points = min_points
+        self.point_proc.min_points = self.min_points
         self.point_proc.max_points = nz
         self.point_proc.x_direction = self.pty.recon.x_direction
         self.point_proc.y_direction = self.pty.recon.y_direction
@@ -258,7 +263,7 @@ class PtychoApp(Application):
         self.point_proc.ny_prb = ny_prb
         self.point_proc.obj_pad = self.pty.recon.obj_pad
 
-        self.pty.num_points_min = min_points
+        self.pty.num_points_min = self.min_points
 
 
 
@@ -267,9 +272,14 @@ class PtychoApp(Application):
         param = parse_config(self.config_path)
         param.live_recon_flag = True
 
-        self.eiger_zmq_rx = EigerZmqRxOp(self,"tcp://10.66.19.47:5559", name="eiger_zmq_rx")
+        self.batchsize = 64
+        self.min_points = 300
+
+        self.flip_image = True #According to detector settings
+
+        self.eiger_zmq_rx = EigerZmqRxOp(self,"tcp://10.66.16.45:5559", name="eiger_zmq_rx")
         self.eiger_decompress = EigerDecompressOp(self, name="eiger_decompress")
-        self.pos_rx = PositionRxOp(self,endpoint = "tcp://10.66.19.45:6666", ch1 = "/INENC2.VAL.Value", ch2 = "/INENC3.VAL.Value", upsample_factor=10,
+        self.pos_rx = PositionRxOp(self,endpoint = "tcp://10.66.16.45:6666", ch1 = "/INENC2.VAL.Value", ch2 = "/INENC3.VAL.Value", upsample_factor=10,
                                    name="pos_rx")
 
         self.image_batch = ImageBatchOp(self, name="image_batch")
@@ -281,7 +291,7 @@ class PtychoApp(Application):
         self.pty = PtychoRecon(self,param=param,name='pty')
         # self.pty_ctrl = PtychoCtrl(self)
 
-        self.init = InitRecon(self,param=param,scan_header_file='/nsls2/data2/hxn/legacy/users/startup_parameters/scan_header.txt')
+        self.init = InitRecon(self,param=param,batchsize = self.batchsize, min_points = self.min_points,scan_header_file='/nsls2/data2/hxn/legacy/users/startup_parameters/scan_header.txt')
 
         # Temp
         self.o = SaveResult(self,name='out')
