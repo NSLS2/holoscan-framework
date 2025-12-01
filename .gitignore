@@ -9,7 +9,7 @@ docs/source/reference/generated/
 # Builds
 /eiger_dir/build
 /dist
-/root_home
+/root_home*
 
 # pytest
 .pytest_cache/
