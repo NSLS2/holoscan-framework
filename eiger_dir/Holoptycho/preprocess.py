@@ -42,6 +42,9 @@ class ImageBatchOp(Operator):
         image = op_input.receive("image")
         image_index = op_input.receive("image_index")
 
+        if self.roi is None:
+            return
+
         # For Eiger2 detector
         if self.flip_image:
             image = np.flip(image,1)
@@ -112,6 +115,9 @@ class PointProcessorOp(Operator):
         self.point_info = None
         self.point_info_target = None
 
+        self.angle_correction_flag = True
+        self.angle = 0
+
         self.upsample = 10
         self.buffer = []
         self.raw_data = np.zeros((2,0),dtype = np.int32)
@@ -161,6 +167,7 @@ class PointProcessorOp(Operator):
         self.y_ratio = param[3]
 
         self.min_points = param[4]
+        self.angle = param[5]
 
         
     def setup(self, spec: OperatorSpec):
@@ -206,6 +213,16 @@ class PointProcessorOp(Operator):
 
                 pos0 = pos0*self.x_ratio*self.x_direction
                 pos1 = pos1*self.y_ratio*self.y_direction
+
+                if self.angle_correction_flag:
+                    # print('rescale x axis...')
+                    if np.abs(self.angle) <= 45.:
+                        pos0 *= np.abs(np.cos(self.angle*np.pi/180.))
+                    else:
+                        pos0 *= np.abs(np.sin(self.angle*np.pi/180.))
+
+                    if self.angle <= -45.:
+                        pos0 *= -1
                 
                 if self.pos_x_base is None:
                     self.pos_x_base = np.min(pos0)

@@ -18,6 +18,7 @@ def parse_scan_header(filename):
 
         p.x_range           = config.getfloat('scan', 'x_range')
         p.y_range           = config.getfloat('scan', 'y_range')
+        p.angle             = config.getfloat('scan', 'angle' , fallback=0)
 
         p.x_motor           = config.get('scan', 'xmotor')
         p.y_motor           = config.get('scan', 'ymotor')

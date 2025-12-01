@@ -43,6 +43,8 @@ class InitRecon(Operator):
         self.batchsize = batchsize
         self.min_points = min_points
 
+        self.angle_correction_flag = True
+
     def setup(self,spec):
         spec.output("flush_pos_rx").condition(ConditionType.NONE)
         spec.output("flush_image_batch").condition(ConditionType.NONE)
@@ -58,6 +60,14 @@ class InitRecon(Operator):
 
                 self.scan_num = p.scan_num
                 nz = p.nz - p.nz%self.batchsize
+
+                if self.angle_correction_flag:
+                    # print('rescale x axis based on rotation angle...')
+                    if np.abs(p.angle) <= 45.:
+                        p.x_range *= np.abs(np.cos(p.angle*np.pi/180.))
+                    else:
+                        p.x_range *= np.abs(np.sin(p.angle*np.pi/180.))
+
                 # New scan
                 op_output.emit((motor_table[p.x_motor][2],motor_table[p.y_motor][2]),'flush_pos_rx')
                 op_output.emit([[p.det_roiy0 + self.roi_ptyy0, \
@@ -66,7 +76,7 @@ class InitRecon(Operator):
                                            p.det_roix0 + self.roi_ptyx0 + self.nx]],\
                                             'flush_image_batch')
                 op_output.emit(True,'flush_image_send')
-                op_output.emit((p.x_range,p.y_range,motor_table[p.x_motor][1],motor_table[p.y_motor][1],p.x_num*2),'flush_pos_proc')
+                op_output.emit((p.x_range,p.y_range,motor_table[p.x_motor][1],motor_table[p.y_motor][1],p.x_num*2,p.angle),'flush_pos_proc')
                 op_output.emit((p.scan_num,p.x_range,p.y_range,np.maximum(p.x_num*2,self.min_points),nz),'flush_pty')
         sleep(0.05)
 
@@ -119,6 +129,8 @@ class PtychoRecon(Operator):
         self.it_last_update = np.inf
         self.pos_ready_num = 0
         self.frame_ready_num = 0
+        self.probe_initialized = not self.recon.init_prb_flag
+
         self.recon.num_points_recon = 0
 
         self.recon.scan_num = str(param[0])
@@ -137,7 +149,7 @@ class PtychoRecon(Operator):
         nx_obj_new = int(self.recon.nx_prb + np.ceil(self.recon.x_range_um*1e-6/self.recon.x_pixel_m) + self.recon.obj_pad)
         ny_obj_new = int(self.recon.ny_prb + np.ceil(self.recon.y_range_um*1e-6/self.recon.y_pixel_m) + self.recon.obj_pad)
 
-        if np.abs(self.recon.nx_obj - nx_obj_new) < self.recon.obj_pad and np.abs(self.recon.ny_obj - ny_obj_new) < self.recon.obj_pad:
+        if False: # Always create new obj. # np.abs(self.recon.nx_obj - nx_obj_new) < self.recon.obj_pad and np.abs(self.recon.ny_obj - ny_obj_new) < self.recon.obj_pad:
             # Similar FOV, flush obj array without reinit
             self.recon.flush_obj()
         else:
@@ -152,6 +164,7 @@ class PtychoRecon(Operator):
         spec.input("pos_ready_num",policy=IOSpec.QueuePolicy.POP).condition(ConditionType.NONE)
         spec.input("frame_ready_num",policy=IOSpec.QueuePolicy.POP).condition(ConditionType.NONE)
         #spec.input("ready_num")
+        spec.output("save_live_result").condition(ConditionType.NONE)
         spec.output("output").condition(ConditionType.NONE)
 
     def compute(self,op_input,op_output,context):
@@ -188,11 +201,22 @@ class PtychoRecon(Operator):
         if self.recon.num_points_recon > self.num_points_min:
             # Maybe not?
             # self.recon.live_update_plan_last()
+            if not self.probe_initialized:
+                self.recon.init_live_prb(self.recon.num_points_recon)
+                if self.recon.prb_prop_dist_um != 0:
+                    self.recon.propagate_prb()
+                self.probe_initialized = True
 
             self.timestamp_iter.append(time.time())
             self.num_points_recv_iter.append(self.recon.num_points_recon)
             self.recon.one_iter(self.it)
+
+            if self.it % 10 == 0:
+                it_mmap = self.it % self.recon.n_iterations
+                op_output.emit((self.recon.mmap_prb[it_mmap],self.recon.mmap_obj[it_mmap],self.it),"save_live_result")
+
             self.it += 1
+
             sleep(0.2)
 
         else:
@@ -211,6 +235,18 @@ class PtychoRecon(Operator):
         sys.stdout.flush()
         sys.stderr.flush()
         
+@create_op(inputs="results")
+def SaveLiveResult(results):
+    np.save('/data/users/Holoscan/prb_live.npy',results[0])
+    np.save('/data/users/Holoscan/obj_live.npy',results[1])
+    try:
+        with open('/data/users/Holoscan/iteration','w') as f:
+            f.write('%d\n'%results[2])
+        os.chmod('/data/users/Holoscan/iteration',0o777)
+        os.chmod('/data/users/Holoscan/prb_live.npy',0o777)
+        os.chmod('/data/users/Holoscan/obj_live.npy',0o777)
+    except:
+        pass
 
 @create_op(inputs="output")
 def SaveResult(output):
@@ -234,7 +270,7 @@ class PtychoApp(Application):
         ny_prb = self.pty.recon.ny_prb
         nz = self.pty.recon.num_points
 
-        self.image_batch.roi = np.array([[207, 387], [236, 416]]) # Only temporary, will be replaced by scan header
+        self.image_batch.roi = None
         self.image_batch.batchsize = self.batchsize
         self.image_batch.flip_image = self.flip_image
         self.image_batch.nx_prb = nx_prb
@@ -262,6 +298,9 @@ class PtychoApp(Application):
         self.point_proc.nx_prb = nx_prb
         self.point_proc.ny_prb = ny_prb
         self.point_proc.obj_pad = self.pty.recon.obj_pad
+
+        self.point_proc.angle_correction_flag = param.angle_correction_flag
+        self.init.angle_correction_flag = param.angle_correction_flag
 
         self.pty.num_points_min = self.min_points
 
@@ -295,6 +334,7 @@ class PtychoApp(Application):
 
         # Temp
         self.o = SaveResult(self,name='out')
+        self.live_result = SaveLiveResult(self,name='live_result')
 
         self.config_ops(param)
 
@@ -336,7 +376,7 @@ class PtychoApp(Application):
         # self.add_flow(self.pty,self.pty_ctrl,{("ctrl","ctrl_input")})
 
 
-
+        self.add_flow(self.pty,self.live_result,{("save_live_result","results")})
         self.add_flow(self.pty,self.o,{("output","output")})
 
 
