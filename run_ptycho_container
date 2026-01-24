@@ -2,8 +2,8 @@
 podman run --rm --net host -it \
 --shm-size=32g \
 -v ./eiger_dir:/eiger_dir \
--v ./root_home:/root \
--v /nsls2/data/hxn/legacy/home/xf03id/src/hxntools/hxntools:/ptycho_gui/hxntools \
+-v ~/.ptycho_gui/root_home:/root \
+-v /nsls2/data/hxn/legacy/home/xf03id/src/hxntools/src/hxntools:/ptycho_gui/hxntools \
 -v "$HOME/.Xauthority:/root/.Xauthority:rw" \
 -v .:/holoscan-framework \
 -v ../src/nsls2ptycho:/ptycho_gui/nsls2ptycho \

@@ -146,6 +146,8 @@ class PointProcessorOp(Operator):
         self.x_ratio = 0
         self.y_ratio = 0
 
+        self.simulate_positions = False
+
     def flush(self,param):
         self.buffer = []
         self.raw_data = np.zeros((2,0),dtype = np.int32)
@@ -160,14 +162,26 @@ class PointProcessorOp(Operator):
         self.pos_x_base = None
         self.pos_y_base = None
 
-        self.x_range_um = param[0]
-        self.y_range_um = param[1]
+        self.x_range_um = np.abs(param[0])
+        self.y_range_um = np.abs(param[1])
 
         self.x_ratio = param[2]
         self.y_ratio = param[3]
 
         self.min_points = param[4]
         self.angle = param[5]
+
+        self.simulate_positions = param[6]
+
+        if self.simulate_positions: #Generate all positions at flush
+            nx = int(param[7])
+            ny = int(param[8])
+            x_range_sign = param[0]
+            y_range_sign = param[1]
+            self.pos0_simul = np.tile(np.linspace(0,x_range_sign,\
+                nx+1)[:-1],[ny,1]).reshape((int(nx*ny),)) * self.x_direction
+            self.pos1_simul = np.tile(np.linspace(0,y_range_sign,\
+                ny+1)[:-1],[nx,1]).T.reshape((int(nx*ny),)) * self.y_direction
 
         
     def setup(self, spec: OperatorSpec):
@@ -200,29 +214,35 @@ class PointProcessorOp(Operator):
 
         if (self.pos_loaded_num+1)*self.upsample <= self.raw_data.shape[1]:
             if self.raw_data.shape[1] > self.min_points * self.upsample:
-
-                p_total_num = self.raw_data.shape[1]//self.upsample
                 
-                praw0 = np.reshape(self.raw_data[0,self.pos_loaded_num*self.upsample:p_total_num*self.upsample],
-                                   (p_total_num-self.pos_loaded_num,self.upsample))
-                pos0 = np.mean(praw0,axis=1,dtype = np.float64)
-                praw1 = np.reshape(self.raw_data[1,self.pos_loaded_num*self.upsample:p_total_num*self.upsample],
-                                   (p_total_num-self.pos_loaded_num,self.upsample))
-                pos1 = np.mean(praw1,axis=1,dtype = np.float64)
+                p_total_num = self.raw_data.shape[1]//self.upsample
+
+                if not self.simulate_positions:
+                    
+                    praw0 = np.reshape(self.raw_data[0,self.pos_loaded_num*self.upsample:p_total_num*self.upsample],
+                                    (p_total_num-self.pos_loaded_num,self.upsample))
+                    pos0 = np.mean(praw0,axis=1,dtype = np.float64)
+                    praw1 = np.reshape(self.raw_data[1,self.pos_loaded_num*self.upsample:p_total_num*self.upsample],
+                                    (p_total_num-self.pos_loaded_num,self.upsample))
+                    pos1 = np.mean(praw1,axis=1,dtype = np.float64)
 
 
-                pos0 = pos0*self.x_ratio*self.x_direction
-                pos1 = pos1*self.y_ratio*self.y_direction
+                    pos0 = pos0*self.x_ratio*self.x_direction
+                    pos1 = pos1*self.y_ratio*self.y_direction
 
-                if self.angle_correction_flag:
-                    # print('rescale x axis...')
-                    if np.abs(self.angle) <= 45.:
-                        pos0 *= np.abs(np.cos(self.angle*np.pi/180.))
-                    else:
-                        pos0 *= np.abs(np.sin(self.angle*np.pi/180.))
+                    if self.angle_correction_flag:
+                        # print('rescale x axis...')
+                        if np.abs(self.angle) <= 45.:
+                            pos0 *= np.abs(np.cos(self.angle*np.pi/180.))
+                        else:
+                            pos0 *= np.abs(np.sin(self.angle*np.pi/180.))
 
-                    if self.angle <= -45.:
-                        pos0 *= -1
+                        if self.angle <= -45.:
+                            pos0 *= -1
+                else:
+                    pos0 = self.pos0_simul[self.pos_loaded_num:p_total_num]
+                    pos1 = self.pos1_simul[self.pos_loaded_num:p_total_num]
+
                 
                 if self.pos_x_base is None:
                     self.pos_x_base = np.min(pos0)

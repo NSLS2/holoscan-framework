@@ -76,7 +76,7 @@ class InitRecon(Operator):
                                            p.det_roix0 + self.roi_ptyx0 + self.nx]],\
                                             'flush_image_batch')
                 op_output.emit(True,'flush_image_send')
-                op_output.emit((p.x_range,p.y_range,motor_table[p.x_motor][1],motor_table[p.y_motor][1],p.x_num*2,p.angle),'flush_pos_proc')
+                op_output.emit((p.x_range,p.y_range,motor_table[p.x_motor][1],motor_table[p.y_motor][1],p.x_num*2,p.angle,p.x_motor == 'ssx',p.x_num,p.y_num),'flush_pos_proc')
                 op_output.emit((p.scan_num,p.x_range,p.y_range,np.maximum(p.x_num*2,self.min_points),nz),'flush_pty')
         sleep(0.05)
 
@@ -134,8 +134,8 @@ class PtychoRecon(Operator):
         self.recon.num_points_recon = 0
 
         self.recon.scan_num = str(param[0])
-        self.recon.x_range_um = param[1]
-        self.recon.y_range_um = param[2]
+        self.recon.x_range_um = np.abs(param[1])
+        self.recon.y_range_um = np.abs(param[2])
 
         self.num_points_min = param[3]
         self.points_total = param[4]
@@ -146,8 +146,8 @@ class PtychoRecon(Operator):
         self.timestamp_iter = []
         self.num_points_recv_iter = []
 
-        nx_obj_new = int(self.recon.nx_prb + np.ceil(self.recon.x_range_um*1e-6/self.recon.x_pixel_m) + self.recon.obj_pad)
-        ny_obj_new = int(self.recon.ny_prb + np.ceil(self.recon.y_range_um*1e-6/self.recon.y_pixel_m) + self.recon.obj_pad)
+        # nx_obj_new = int(self.recon.nx_prb + np.ceil(self.recon.x_range_um*1e-6/self.recon.x_pixel_m) + self.recon.obj_pad)
+        # ny_obj_new = int(self.recon.ny_prb + np.ceil(self.recon.y_range_um*1e-6/self.recon.y_pixel_m) + self.recon.obj_pad)
 
         if False: # Always create new obj. # np.abs(self.recon.nx_obj - nx_obj_new) < self.recon.obj_pad and np.abs(self.recon.ny_obj - ny_obj_new) < self.recon.obj_pad:
             # Similar FOV, flush obj array without reinit
@@ -217,10 +217,10 @@ class PtychoRecon(Operator):
 
             self.it += 1
 
-            sleep(0.2)
+            sleep(0.05)
 
         else:
-            sleep(0.2)
+            sleep(0.05)
 
 
             # #save
@@ -316,7 +316,7 @@ class PtychoApp(Application):
 
         self.flip_image = True #According to detector settings
 
-        self.eiger_zmq_rx = EigerZmqRxOp(self,"tcp://10.66.16.45:5559", name="eiger_zmq_rx")
+        self.eiger_zmq_rx = EigerZmqRxOp(self,"tcp://10.66.16.47:5559", name="eiger_zmq_rx")
         self.eiger_decompress = EigerDecompressOp(self, name="eiger_decompress")
         self.pos_rx = PositionRxOp(self,endpoint = "tcp://10.66.16.45:6666", ch1 = "/INENC2.VAL.Value", ch2 = "/INENC3.VAL.Value", upsample_factor=10,
                                    name="pos_rx")
