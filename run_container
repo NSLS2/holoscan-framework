@@ -1,15 +1,15 @@
 #!/bin/bash
 podman run --rm --net host -it \
 --shm-size=32g \
--v ./eiger_dir:/eiger_dir \
--v ~/.ptycho_gui/root_home:/root \
--v /nsls2/data/hxn/legacy/home/xf03id/src/hxntools/src/hxntools:/ptycho_gui/hxntools \
+-v ./podman_dir:/podman_dir \
+-v ../:/ptycho_gui_holoscan \
 -v "$HOME/.Xauthority:/root/.Xauthority:rw" \
--v .:/holoscan-framework \
--v ../src/nsls2ptycho:/ptycho_gui/nsls2ptycho \
--v /nsls2/data2/hxn/legacy:/nsls2/data2/hxn/legacy \
--v /nsls2/data2/hxn/legacy:/data \
--w /eiger_dir \
+-v /nsls2/data/hxn/legacy:/nsls2/data2/hxn/legacy \
+-v /nsls2/data/hxn/legacy:/nsls2/data/hxn/legacy \
+-v /nsls2/data/hxn/legacy:/data \
+-v /nsls2/data/hxn/legacy/home/xf03id/src/hxntools:/hxntools \
+-v ~/.ptycho_gui/root_home:/root \
+-w /podman_dir \
 -e DISPLAY="$DISPLAY" \
 -e OMPI_ALLOW_RUN_AS_ROOT=1 \
 -e OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1 \
@@ -17,8 +17,4 @@ podman run --rm --net host -it \
 -e OMPI_COMM_WORLD_LOCAL_SIZE=1 \
 -e HOLOSCAN_ENABLE_PROFILE=1 \
 --device nvidia.com/gpu=all \
-hxn-ptycho-holoscan pixi shell
-# -v ./eiger_dir/Holoptycho:/ptycho_gui/nsls2ptycho/core/Holoptycho \
-# -v ~/python_packages/nsls2ptycho2:/ptycho_gui/nsls2ptycho2 \
-# -v ../ptycho_gui:/ptycho_gui \
-# -v ../ptycho:/ptycho_gui/nsls2ptycho/core/ptycho \
+hxn-ptycho-holoscan pixi shell $@

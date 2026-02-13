@@ -260,19 +260,21 @@ class PointProcessorOp(Operator):
 
                 for i in range(self.pos_loaded_num,p_total_num):
                     index = i-self.pos_loaded_num
-                    self.point_info[i,:] = np.array([(int(points0[index] - self.nx_prb//2), int(points0[index] + self.nx_prb//2), \
-                                     int(points1[index] - self.ny_prb//2), int(points1[index] + self.ny_prb//2))]\
-                                     ,dtype = np.int32)
+                    if i < self.max_points:
+                        self.point_info[i,:] = np.array([(int(points0[index] - self.nx_prb//2), int(points0[index] + self.nx_prb//2), \
+                                        int(points1[index] - self.ny_prb//2), int(points1[index] + self.ny_prb//2))]\
+                                        ,dtype = np.int32)
                 self.pos_loaded_num = p_total_num
                 
     def send_points_to_recon(self):
 
         for i in range(self.pos_ready_num,self.frame_id_list.shape[0]):
             # print('loaded', self.pos_loaded_num)
-            if self.pos_loaded_num > self.frame_id_list[i] and self.pos_ready_num < self.max_points:
+            if self.pos_loaded_num > self.frame_id_list[i]:
                 fid = self.frame_id_list[i]
-                self.point_info_target[self.pos_ready_num,:] = cp.array(self.point_info[fid,:],\
-                                                                        dtype = np.int32, order='C')
+                if fid < self.max_points:
+                    self.point_info_target[self.pos_ready_num,:] = cp.array(self.point_info[fid,:],\
+                                                                            dtype = np.int32, order='C')
                 # sys.stderr.write(f'{self.point_info[fid,:]}'+'\n')
                 self.pos_ready_num += 1
             else:
@@ -343,11 +345,13 @@ class ImageSendOp(Operator):
 
         nframe = diff_d.shape[0]
 
+
         if (self.frame_ready_num + nframe) < self.max_points:
             diff_d_target = self.diff_d_target[self.frame_ready_num:self.frame_ready_num+nframe]
-            self.frame_ready_num += nframe
             
             cp.cuda.runtime.memcpy(diff_d_target.data.ptr,diff_d.ctypes.data,diff_d.nbytes,cp.cuda.runtime.memcpyHostToDevice)
 
-            op_output.emit(indices,"image_indices_out")
-            op_output.emit(self.frame_ready_num,"frame_ready_num")
+        self.frame_ready_num += nframe
+        
+        op_output.emit(indices,"image_indices_out")
+        op_output.emit(self.frame_ready_num,"frame_ready_num")

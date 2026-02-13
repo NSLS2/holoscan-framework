@@ -58,6 +58,8 @@ class InitRecon(Operator):
         if p:
             if self.scan_num != p.scan_num:
 
+                print(f"New scan num: {p.scan_num}")
+
                 self.scan_num = p.scan_num
                 nz = p.nz - p.nz%self.batchsize
 
@@ -111,6 +113,7 @@ class PtychoRecon(Operator):
 
         self.recon, rank = recon_thread(param)
         self.recon.setup()
+        self.recon.keep_obj0()
 
         self.num_points_min = 300
         self.it = 0
@@ -129,7 +132,7 @@ class PtychoRecon(Operator):
         self.it_last_update = np.inf
         self.pos_ready_num = 0
         self.frame_ready_num = 0
-        self.probe_initialized = not self.recon.init_prb_flag
+        self.probe_initialized = False # not self.recon.init_prb_flag
 
         self.recon.num_points_recon = 0
 
@@ -193,9 +196,11 @@ class PtychoRecon(Operator):
 
         ready_num = np.minimum(self.pos_ready_num,self.frame_ready_num)
 
+        ready_num = np.minimum(self.recon.num_points_l,ready_num)
+
         if ready_num > self.recon.num_points_recon and self.num_points_min < np.inf:
             self.recon.num_points_recon = ready_num
-            if ready_num > self.points_total*0.8:
+            if ready_num > np.minimum(self.recon.num_points_l,self.points_total)*0.97:
                 self.it_last_update = self.it
         
         if self.recon.num_points_recon > self.num_points_min:
@@ -217,10 +222,7 @@ class PtychoRecon(Operator):
 
             self.it += 1
 
-            sleep(0.05)
-
-        else:
-            sleep(0.05)
+        sleep(0.1)
 
 
             # #save
@@ -237,14 +239,11 @@ class PtychoRecon(Operator):
         
 @create_op(inputs="results")
 def SaveLiveResult(results):
-    np.save('/data/users/Holoscan/prb_live.npy',results[0])
-    np.save('/data/users/Holoscan/obj_live.npy',results[1])
     try:
+        np.save('/data/users/Holoscan/prb_live.npy',results[0])
+        np.save('/data/users/Holoscan/obj_live.npy',results[1])
         with open('/data/users/Holoscan/iteration','w') as f:
             f.write('%d\n'%results[2])
-        os.chmod('/data/users/Holoscan/iteration',0o777)
-        os.chmod('/data/users/Holoscan/prb_live.npy',0o777)
-        os.chmod('/data/users/Holoscan/obj_live.npy',0o777)
     except:
         pass
 
@@ -255,6 +254,7 @@ def SaveResult(output):
     save_dir = output[0].save_recon_flow()
     np.save(save_dir+'/timestamp_iter',np.array(output[1]))
     np.save(save_dir+'/num_points_recv_iter',np.array(output[2]))
+    print('Saving results done.')
     return
     
 
@@ -316,9 +316,9 @@ class PtychoApp(Application):
 
         self.flip_image = True #According to detector settings
 
-        self.eiger_zmq_rx = EigerZmqRxOp(self,"tcp://10.66.16.47:5559", name="eiger_zmq_rx")
+        self.eiger_zmq_rx = EigerZmqRxOp(self,os.environ['SERVER_STREAM_SOURCE'], name="eiger_zmq_rx")
         self.eiger_decompress = EigerDecompressOp(self, name="eiger_decompress")
-        self.pos_rx = PositionRxOp(self,endpoint = "tcp://10.66.16.45:6666", ch1 = "/INENC2.VAL.Value", ch2 = "/INENC3.VAL.Value", upsample_factor=10,
+        self.pos_rx = PositionRxOp(self,endpoint = os.environ['PANDA_STREAM_SOURCE'], ch1 = "/INENC2.VAL.Value", ch2 = "/INENC3.VAL.Value", upsample_factor=10,
                                    name="pos_rx")
 
         self.image_batch = ImageBatchOp(self, name="image_batch")

@@ -120,7 +120,7 @@ class EigerZmqRxOp(Operator):
             context = zmq.Context()
             self.socket = context.socket(zmq.SUB)
             
-            server_pub = os.environ["SERVER_PUBLIC_KEY_DET2"].encode('ascii')
+            server_pub = os.environ["SERVER_PUBLIC_KEY"].encode('ascii')
             client_pub = os.environ["CLIENT_PUBLIC_KEY"].encode('ascii')
             client_sec = os.environ["CLIENT_SECRET_KEY"].encode('ascii')
 
