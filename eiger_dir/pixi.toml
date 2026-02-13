@@ -35,7 +35,7 @@ gxx_linux-64 = "==11.4"
 mpi4py = ">=4.0.1"
 nvtx = "==0.2.10"
 git = "*"
-
+tiled-client = ">=0.2.3"
 
 [pypi-dependencies]
 holoscan = "==3.1.*"
