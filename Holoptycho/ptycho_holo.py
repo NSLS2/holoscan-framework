@@ -152,13 +152,8 @@ class PtychoRecon(Operator):
         # nx_obj_new = int(self.recon.nx_prb + np.ceil(self.recon.x_range_um*1e-6/self.recon.x_pixel_m) + self.recon.obj_pad)
         # ny_obj_new = int(self.recon.ny_prb + np.ceil(self.recon.y_range_um*1e-6/self.recon.y_pixel_m) + self.recon.obj_pad)
 
-        if False: # Always create new obj. # np.abs(self.recon.nx_obj - nx_obj_new) < self.recon.obj_pad and np.abs(self.recon.ny_obj - ny_obj_new) < self.recon.obj_pad:
-            # Similar FOV, flush obj array without reinit
-            self.recon.flush_obj()
-        else:
-            # Oops, new obj array is needed. Good luck..
-            self.recon.new_obj()
-            print('reload shared memory')
+        self.recon.new_obj()
+        print('reload shared memory')
 
         # self.recon.init_mmap()
 
