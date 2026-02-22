@@ -7,6 +7,7 @@ import os
 
 import numpy as np
 import cupy as cp
+from numba import cuda
 
 from hxntools.motor_info import motor_table
 
@@ -258,6 +259,8 @@ class PtychoApp(Application):
         super().__init__(*args,**kwargs)
 
         self.config_path = config_path
+        self.param = parse_config(self.config_path)
+        self.gpu = self.param.gpus[0]
 
     def config_ops(self,param):
 
@@ -303,8 +306,8 @@ class PtychoApp(Application):
 
     def compose(self):
 
-        param = parse_config(self.config_path)
-        param.live_recon_flag = True
+        self.param.live_recon_flag = True
+        
 
         self.batchsize = 64
         self.min_points = 300
@@ -322,16 +325,16 @@ class PtychoApp(Application):
         self.point_proc = PointProcessorOp(self, name="point_proc")
 
         # self.init_recon = InitRecon(self)
-        self.pty = PtychoRecon(self,param=param,name='pty')
+        self.pty = PtychoRecon(self,param=self.param,name='pty')
         # self.pty_ctrl = PtychoCtrl(self)
 
-        self.init = InitRecon(self,param=param,batchsize = self.batchsize, min_points = self.min_points,scan_header_file='/nsls2/data2/hxn/legacy/users/startup_parameters/scan_header.txt')
+        self.init = InitRecon(self,param=self.param,batchsize = self.batchsize, min_points = self.min_points,scan_header_file='/nsls2/data2/hxn/legacy/users/startup_parameters/scan_header.txt')
 
         # Temp
         self.o = SaveResult(self,name='out')
         self.live_result = SaveLiveResult(self,name='live_result')
 
-        self.config_ops(param)
+        self.config_ops(self.param)
 
 
         self.add_flow(self.eiger_zmq_rx,self.eiger_decompress,{("image_index_encoding","image_index_encoding")})
@@ -384,6 +387,10 @@ def main():
     #config = parse_args()
 
     app = PtychoApp(config_path=config_path)
+    cp.cuda.Device(app.gpu).use()
+    cuda.select_device(app.gpu)
+    cp.cuda.set_pinned_memory_allocator()
+    
     #app.config()
     
     # scheduler = EventBasedScheduler(
@@ -405,7 +412,7 @@ def main():
                 name="multithread_scheduler",
             )
     app.scheduler(scheduler)
-    
+
     app.run()
     
     
